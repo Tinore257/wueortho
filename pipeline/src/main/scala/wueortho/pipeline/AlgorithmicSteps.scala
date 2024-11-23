@@ -4,14 +4,17 @@
 package wueortho.pipeline
 
 import wueortho.data.*
-import wueortho.layout.{ForceDirected as FDLayout}
+import wueortho.layout.{SGDStressMinimization, ForceDirected as FDLayout}
 import wueortho.overlaps.Nachmanson
 import wueortho.ports.AngleHeuristic
 import wueortho.routing.*
-import wueortho.nudging.{Nudging, FullNudging, EdgeNudging}
+import wueortho.nudging.{EdgeNudging, FullNudging, Nudging}
 import wueortho.metrics.Crossings
-import wueortho.util.GraphConversions, GraphConversions.toWeighted.*
-import wueortho.util.RunningTime, RunningTime.unit as noRt, StepUtils.*
+import wueortho.util.GraphConversions
+import GraphConversions.toWeighted.*
+import wueortho.util.RunningTime
+import RunningTime.unit as noRt
+import StepUtils.*
 import wueortho.util.EnumUtils.*
 import wueortho.util.Codecs.given
 import io.circe.derivation.ConfiguredEnumCodec
@@ -44,6 +47,39 @@ object AlgorithmicSteps:
       val baseRandom = seed.newRandom
       val res        = RunningTime.ofAll((1 to repetitions).toList, i => s"run#$i"): _ =>
         val layout    = run(weighted, FDLayout.initLayout(Random(baseRandom.nextLong()), graph.numberOfVertices))
+        val crossings = Crossings.numberOfCrossings(graph, layout)
+        layout -> crossings
+      res.map(_.minBy(_._2)._1)
+    end layout
+  end given
+
+
+  given StepImpl[step.SGDLayout] with
+    override transparent inline def stagesUsed = ("graph", Stage.Graph)
+
+    override transparent inline def stagesModified = Stage.Layout
+
+    override def tags = GetSingleTag(stagesUsed)
+
+    override def helpText =
+      s"""Perform stochastical-gradient-descent vertex layout for a given graph.
+         | * `${field[step.SGDLayout, "seed"]}` - The layout is initialized using a PRNG with this seed.
+         | * `${field[step.SGDLayout, "iterations"]}` - and the algorithm stops after so many steps.
+         | * `${field[step.SGDLayout, "repetitions"]}` - number of layouts will be calculated.
+         |    The algorithm chooses the one with the least straight-line crossings""".stripMargin
+
+    override def runToStage(s: WithTags[step.SGDLayout], cache: StageCache) = for
+      graph <- UseSingleStage(s, cache, stagesUsed)
+      res = layout(s.step.iterations, s.step.seed, s.step.repetitions, graph)
+      _ <- UpdateSingleStage(s, cache, stagesModified)(res.get)
+    yield res
+
+    private def layout(iterations: Int, seed: Seed, repetitions: Int, graph: BasicGraph) =
+      val run = SGDStressMinimization.layout(SGDStressMinimization.defaultConfig.copy(iterCap = iterations))
+      val weighted = graph.withWeights(using GraphConversions.withUniformWeights(w = 1))
+      val baseRandom = seed.newRandom
+      val res = RunningTime.ofAll((1 to repetitions).toList, i => s"run#$i"): _ =>
+        val layout = run(weighted, SGDStressMinimization.initLayout(Random(baseRandom.nextLong()), graph.numberOfVertices))
         val crossings = Crossings.numberOfCrossings(graph, layout)
         layout -> crossings
       res.map(_.minBy(_._2)._1)
