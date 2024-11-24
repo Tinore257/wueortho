@@ -79,7 +79,7 @@ object AlgorithmicSteps:
       val weighted = graph.withWeights(using GraphConversions.withUniformWeights(w = 1))
       val baseRandom = seed.newRandom
       val res = RunningTime.ofAll((1 to repetitions).toList, i => s"run#$i"): _ =>
-        val layout = run(weighted, SGDStressMinimization.initLayout(Random(baseRandom.nextLong()), graph.numberOfVertices))
+        val layout = run(Random(baseRandom.nextLong()),weighted, SGDStressMinimization.initLayout(Random(baseRandom.nextLong()), graph.numberOfVertices))
         val crossings = Crossings.numberOfCrossings(graph, layout)
         layout -> crossings
       res.map(_.minBy(_._2)._1)

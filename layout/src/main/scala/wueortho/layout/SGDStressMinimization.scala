@@ -14,13 +14,28 @@ import wueortho.util.GraphSearch
 import wueortho.util.GraphSearch.floydWarshallApsp
 
 object SGDStressMinimization:
-
-
-//Floyd Warshall Algorithm in GraphSearch.scala (floydWarshallApsp)
-  def layout(cfg: Config)(graph: WeightedGraph, init: VertexLayout): VertexLayout =
+  
+  
+  //Floyd Warshall Algorithm in GraphSearch.scala (floydWarshallApsp)
+  def layout(cfg: Config)(rand: Random, graph: WeightedGraph, init: VertexLayout): VertexLayout =
     val dij: MatrixView[Double] = floydWarshallApsp(graph.numberOfVertices, graph.edges)
     val n = graph.numberOfVertices
-
+    
+    var maxDiameter = 0.0
+    var minDiameter = Double.PositiveInfinity
+    
+    for
+      k <- 0 until n
+      j <- (k + 1) until n
+    do
+      val d = dij(k, j)
+      maxDiameter = if maxDiameter < d && d != Double.PositiveInfinity then d else maxDiameter
+      minDiameter = if minDiameter > d then d else minDiameter
+        
+    val epsilon = 0.1
+    val etaMin = epsilon / (maxDiameter * maxDiameter) 
+    val etaMax = 1.0 / (minDiameter * minDiameter)
+    
     class PosVec(init: Seq[Vec2D]):
       var a = Array[Vec2D](init*)
 
@@ -41,7 +56,7 @@ object SGDStressMinimization:
 
         //get permutation of nodes
         val list: Seq[Int] = Range.inclusive(0, n-1)
-        val permutation: Seq[Int] = scala.util.Random.shuffle(list)
+        val permutation: Seq[Int] = rand.shuffle(list)
 
         // calculate stress:
         for
@@ -56,7 +71,7 @@ object SGDStressMinimization:
           val duv = dij(u, v)
           val wij = 1.0/(duv * duv)
 
-          val stepSize = cfg.eta(i, etaMax)
+          val stepSize = cfg.eta(cfg.iterCap - i, etaMax, etaMin)
 
           val clampedStepSize = (wij * stepSize) min 1.0
 
@@ -77,28 +92,13 @@ object SGDStressMinimization:
         go(i - 1, etaMax, pos)
     end go
 
-    var maxDiameter = 0.0
-    var minDiameter = Double.PositiveInfinity
-
-    for
-      k <- 0 until n
-      j <- (k + 1) until n
-    do
-      val d = dij(k, j)
-      maxDiameter = if maxDiameter < d && d != Double.PositiveInfinity then d else maxDiameter
-      minDiameter = if minDiameter > d then d else minDiameter
-
-    val epsilon = 0.03
-    val etaMax = minDiameter * minDiameter
-    val etaMin = epsilon * maxDiameter * maxDiameter 
-
     VertexLayout(go(cfg.iterCap, etaMax, PosVec(init.nodes)))
   end layout
 
   case class Config(
       startingStepSize: Double,
       iterCap: Int,
-      eta: (Int, Double) => Double,
+      eta: (Int, Double, Double) => Double,
   )
 
   val defaultConfig = Config(
@@ -106,7 +106,7 @@ object SGDStressMinimization:
     iterCap = 0,
     // cooling = x => (x - 0.1) * 0.995 + 0.1,
     //cooling = x => (x - 0.02) max 0.01,
-    eta = (t, etaMax) => (etaMax * Math.exp(-0.03 * t)) 
+    eta = (t, etaMax, etaMin) => (etaMax * Math.exp(-0.001 * t)) max etaMin,
   )
 
   def initLayout(rand: Random, n: Int) =
