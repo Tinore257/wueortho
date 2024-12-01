@@ -21,43 +21,44 @@ object SGDStressMinimization:
     val dij: MatrixView[Double] = floydWarshallApsp(graph.numberOfVertices, graph.edges)
     val n = graph.numberOfVertices
     
-    var maxDiameter = 0.0
-    var minDiameter = Double.PositiveInfinity
+    var dMax = 0.0
+    //var dMin = Double.PositiveInfinity
     
     for
       k <- 0 until n
       j <- (k + 1) until n
     do
       val d = dij(k, j)
-      maxDiameter = if maxDiameter < d && d != Double.PositiveInfinity then d else maxDiameter
-      minDiameter = if minDiameter > d then d else minDiameter
-        
-    val epsilon = 0.1
-    val etaMin = epsilon / (maxDiameter * maxDiameter) 
-    val etaMax = 1.0 / (minDiameter * minDiameter)
+      dMax = if dMax < d && d != Double.PositiveInfinity then d else dMax
+      //dMin = if dMin > d then d else dMin
+         
+      
+    val etaMin = 0.1
+    val cMax = dMax * dMax
+
+    val anealing = cfg.eta(cMax, etaMin, cfg.iterCap)
     
     class PosVec(init: Seq[Vec2D]):
       var a = Array[Vec2D](init*)
 
       def apply(i: Int) = a(i)
-      //def delta(i: Int) = a(i) - b(i)
       def finish        = a.toVector
 
       def addStress(i: Int, delta: Vec2D)   = a(i) += delta
       def update(i: Int, value: Vec2D) = a(i) = value
 
-      //def applyChanges() = Array.copy(a, 0, b, 0, a.length)
     end PosVec
       
     @tailrec
-    def go(i: Int, etaMax: Double, pos: PosVec): Vector[Vec2D] =
+    def go(i: Int, pos: PosVec): Vector[Vec2D] =
       if i < 0 then pos.finish
       else
 
         //get permutation of nodes
         val list: Seq[Int] = Range.inclusive(0, n-1)
-        val permutation: Seq[Int] = rand.shuffle(list)
-
+        //val permutation: Seq[Int] = rand.shuffle(list)
+        val permutation: Seq[Int] = Random.shuffle(list)
+        
         // calculate stress:
         for
           k <- 0 until n
@@ -71,7 +72,7 @@ object SGDStressMinimization:
           val duv = dij(u, v)
           val wij = 1.0/(duv * duv)
 
-          val stepSize = cfg.eta(cfg.iterCap - i, etaMax, etaMin)
+          val stepSize =  anealing(cfg.iterCap - i) //cfg.eta(cfg.iterCap - i, etaMax, etaMin, cfg.iterCap)
 
           val clampedStepSize = (wij * stepSize) min 1.0
 
@@ -89,24 +90,26 @@ object SGDStressMinimization:
             pos(u) = pos(u) - displacement
             pos(v) = pos(v) + displacement
 
-        go(i - 1, etaMax, pos)
+        go(i - 1, pos)
     end go
 
-    VertexLayout(go(cfg.iterCap, etaMax, PosVec(init.nodes)))
+    VertexLayout(go(cfg.iterCap, PosVec(init.nodes)))
   end layout
 
   case class Config(
       startingStepSize: Double,
       iterCap: Int,
-      eta: (Int, Double, Double) => Double,
+      //eta: (Int, Double, Double, Int) => Double,
+      eta: (Double, Double, Int) => (Int => Double), 
   )
 
   val defaultConfig = Config(
     startingStepSize = 0.5,
-    iterCap = 0,
+    iterCap = 1000,
     // cooling = x => (x - 0.1) * 0.995 + 0.1,
     //cooling = x => (x - 0.02) max 0.01,
-    eta = (t, etaMax, etaMin) => (etaMax * Math.exp(-0.001 * t)) max etaMin,
+    //eta = (t, etaMax, etaMin, iterCap) => etaMax * Math.exp(t * (Math.log(etaMin/etaMax))/(iterCap - 1))
+    eta = (etaMax, etaMin, iterCap) => (t =>  etaMax * Math.exp(t * (Math.log(etaMin/etaMax))/(iterCap - 1)))
   )
 
   def initLayout(rand: Random, n: Int) =
