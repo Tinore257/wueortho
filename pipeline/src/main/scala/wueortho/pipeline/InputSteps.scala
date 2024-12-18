@@ -15,6 +15,7 @@ import io.circe.derivation.ConfiguredEnumCodec
 
 import scala.util.Try
 import java.nio.file.Files
+import wueortho.io.grid.GridGraph
 
 object InputSteps:
   import wueortho.util.RunningTime.unit as noRt, StepUtils.*
@@ -37,6 +38,28 @@ object InputSteps:
     override def runToStage(s: WithTags[step.RandomGraph], cache: StageCache) =
       import s.step.*
       RandomGraphs.mkBasicGraph(RandomGraphs.RandomGraphConfig(n, m, seed, core, allowLoops))
+        .flatMap(graph => UpdateSingleStage(s, cache, stagesModified)(graph)).unit
+  end given
+
+
+
+  given StepImpl[step.GridGraph] with
+    override transparent inline def stagesUsed     = EmptyTuple
+    
+    override transparent inline def stagesModified = Stage.Graph
+
+    override def tags     = GetTags(stagesUsed)
+    override def helpText =
+      s"""Create grid graphs.
+         | * The graph will have a grid of `${field[step.GridGraph, "rows"]}` rows and `${field[step.GridGraph, "columns"]}`.
+         | * `${field[step.GridGraph, "size"]}` - size of a node.
+         | * `${field[step.GridGraph, "gap"]}` - size between nodes
+         | * `${field[step.GridGraph, "diagonalEdges"]}` - enables diagonal connection inside the grid.""".stripMargin
+    end helpText
+
+    override def runToStage(s: WithTags[step.GridGraph], cache: StageCache) =
+      import s.step.*
+      GridGraph.mkGridGraph(GridGraph.GridGraphConfig(rows, columns, size, gap, diagonalEdges))
         .flatMap(graph => UpdateSingleStage(s, cache, stagesModified)(graph)).unit
   end given
 
