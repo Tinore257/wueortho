@@ -16,7 +16,6 @@ import wueortho.util.GraphSearch.floydWarshallApsp
 object SGDStressMinimization:
   
   
-  //Floyd Warshall Algorithm in GraphSearch.scala (floydWarshallApsp)
   def layout(cfg: Config)(rand: Random, graph: WeightedGraph, init: VertexLayout): VertexLayout =
     val dij: MatrixView[Double] = floydWarshallApsp(graph.numberOfVertices, graph.edges)
     val n = graph.numberOfVertices
@@ -44,7 +43,6 @@ object SGDStressMinimization:
       def apply(i: Int) = a(i)
       def finish        = a.toVector
 
-      def addStress(i: Int, delta: Vec2D)   = a(i) += delta
       def update(i: Int, value: Vec2D) = a(i) = value
 
     end PosVec
@@ -56,8 +54,8 @@ object SGDStressMinimization:
 
         //get permutation of nodes
         val list: Seq[Int] = Range.inclusive(0, n-1)
-        //val permutation: Seq[Int] = rand.shuffle(list)
-        val permutation: Seq[Int] = Random.shuffle(list)
+        val permutation: Seq[Int] = rand.shuffle(list)
+        //val permutation: Seq[Int] = Random.shuffle(list)
         
         // calculate stress:
         for
@@ -106,8 +104,6 @@ object SGDStressMinimization:
   val defaultConfig = Config(
     startingStepSize = 0.5,
     iterCap = 1000,
-    // cooling = x => (x - 0.1) * 0.995 + 0.1,
-    //cooling = x => (x - 0.02) max 0.01,
     //eta = (t, etaMax, etaMin, iterCap) => etaMax * Math.exp(t * (Math.log(etaMin/etaMax))/(iterCap - 1))
     eta = (etaMax, etaMin, iterCap) => (t =>  etaMax * Math.exp(t * (Math.log(etaMin/etaMax))/(iterCap - 1)))
   )

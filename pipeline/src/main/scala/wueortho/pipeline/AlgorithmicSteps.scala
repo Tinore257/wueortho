@@ -4,7 +4,7 @@
 package wueortho.pipeline
 
 import wueortho.data.*
-import wueortho.layout.{SGDStressMinimization, ForceDirected as FDLayout}
+import wueortho.layout.{OrthogonalRotation , SGDStressMinimization, ForceDirected as FDLayout}
 import wueortho.overlaps.Nachmanson
 import wueortho.ports.AngleHeuristic
 import wueortho.routing.*
@@ -83,6 +83,31 @@ object AlgorithmicSteps:
         val crossings = Crossings.numberOfCrossings(graph, layout)
         layout -> crossings
       res.map(_.minBy(_._2)._1)
+    end layout
+  end given
+
+  given StepImpl[step.OrthogonalRotationLayout] with
+    override transparent inline def stagesUsed = ("layout" -> Stage.Layout, "graph" -> Stage.Graph)
+
+    override transparent inline def stagesModified = Stage.Layout
+
+    override def tags = GetTags(stagesUsed)
+
+    override def helpText =
+      s"""Computes the angle theta such that the graph when rotated by theta 
+        will align most edges close to the semiaxis and applies this rotation""".stripMargin
+
+    override def runToStage(s: WithTags[step.OrthogonalRotationLayout], cache: StageCache) = for
+      (inLayout, graph) <- UseStages(s, cache, stagesUsed)
+      _ <- UpdateSingleStage(s, cache, stagesModified)(layout( graph, inLayout))
+    yield noRt
+
+    private def layout(graph: BasicGraph, init: VertexLayout) =
+      val run = OrthogonalRotation.layout
+      val weighted = graph.withWeights(using GraphConversions.withUniformWeights(w = 1))
+      val res = RunningTime.of("Rotate to maximize orthogonal edges")(() =>
+        run(weighted, init))
+      res.get()
     end layout
   end given
 
