@@ -12,12 +12,14 @@ import java.lang.Math.sqrt
 import wueortho.data.mutable.MatrixView
 import wueortho.util.GraphSearch
 import wueortho.util.GraphSearch.floydWarshallApsp
+import wueortho.data.WeightedEdge
 
 object SGDStressMinimization:
   
   
   def layout(cfg: Config)(rand: Random, graph: WeightedGraph, init: VertexLayout): VertexLayout =
-    val dij: MatrixView[Double] = floydWarshallApsp(graph.numberOfVertices, graph.edges)
+    val undirectedEdges = graph.edges.flatMap(e => Seq(WeightedEdge(e.from, e.to, e.weight), WeightedEdge(e.to, e.from, e.weight)))
+    val dij: MatrixView[Double] = floydWarshallApsp(graph.numberOfVertices, undirectedEdges)
     val n = graph.numberOfVertices
     
     var dMax = 0.0
