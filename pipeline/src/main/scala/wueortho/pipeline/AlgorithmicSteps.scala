@@ -20,6 +20,7 @@ import wueortho.util.Codecs.given
 import io.circe.derivation.ConfiguredEnumCodec
 
 import scala.util.Random
+import wueortho.layout.GreedyOrthogonalization
 
 object AlgorithmicSteps:
 
@@ -106,6 +107,31 @@ object AlgorithmicSteps:
       val run = OrthogonalRotation.layout
       val weighted = graph.withWeights(using GraphConversions.withUniformWeights(w = 1))
       val res = RunningTime.of("Rotate to maximize orthogonal edges")(() =>
+        run(weighted, init))
+      res.get()
+    end layout
+  end given
+
+  given StepImpl[step.GreedyOrthogonalization] with
+    override transparent inline def stagesUsed = ("layout" -> Stage.Layout, "graph" -> Stage.Graph)
+
+    override transparent inline def stagesModified = Stage.Layout
+
+    override def tags = GetTags(stagesUsed)
+
+    override def helpText =
+      s"""Assings greedy directions to semiaxis starting with highest degree
+      vertex""".stripMargin
+
+    override def runToStage(s: WithTags[step.GreedyOrthogonalization], cache: StageCache) = for
+      (inLayout, graph) <- UseStages(s, cache, stagesUsed)
+      _ <- UpdateSingleStage(s, cache, stagesModified)(layout( graph, inLayout))
+    yield noRt
+
+    private def layout(graph: BasicGraph, init: VertexLayout) =
+      val run = GreedyOrthogonalization.layout
+      val weighted = graph.withWeights(using GraphConversions.withUniformWeights(w = 1))
+      val res = RunningTime.of("Greedy direction assignment")(() =>
         run(weighted, init))
       res.get()
     end layout
