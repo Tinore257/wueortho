@@ -31,7 +31,7 @@ object OrthogonalRotation:
     //the list of the angles of the edges
     val alphaList = graph.edges
       .map(edge => (pos(edge.from.toInt), pos(edge.to.toInt)))
-      .map((e1, e2) => math.atan(((e2.x2-e1.x2)/(e2.x1-e1.x1))))
+      .map((e1, e2) => math.atan2((e2.x2-e1.x2),(e2.x1-e1.x1)))
 
     val sinSum: Double = alphaList
       .map(a => math.sin(a))
