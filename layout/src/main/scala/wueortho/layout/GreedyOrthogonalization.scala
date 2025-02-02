@@ -61,6 +61,7 @@ object GreedyOrthogonalization:
 
     val allEdges = undirectedGraph.edges
 
+    //precalculate all edge angles
     allEdges.map(b => (b.from, b.to, pos(b.from.toInt), pos(b.to.toInt)))
       .foreach((from, to, e1, e2) => allEdgeAngles(from.toInt, to.toInt) = angleOfEdge(e1, e2))
 
@@ -83,28 +84,28 @@ object GreedyOrthogonalization:
 
     for (vertex, deg) <- verticesOrderedByDegree do
       //calculate cost function for all edges starting at v
-      var minCosts = mutable.Map().addAll(Direction.values.map(_ -> (Double.PositiveInfinity, (0,0))).toMap)
+      var minCosts = Direction.values.map(d => (d, Double.PositiveInfinity, (0,0))).sortBy((d, _, _) => d.ordinal)
 
       for neighbor <- undirectedGraph.vertices(vertex).neighbors.map(v => v.toNode.toInt) do
         for dir <- Direction.values do
           val cost = edgeAlignmentCost(allEdgeAngles(vertex, neighbor), dir)
-          if minCosts.getOrElse(dir, (Double.PositiveInfinity, (0,0)))._1 > cost && math.abs(cost) < Math.PI/4
-            then minCosts(dir) = (cost, (vertex, neighbor))
+          if minCosts(dir.ordinal)._2 > cost && math.abs(cost) < Math.PI/4
+            then minCosts(dir.ordinal) = (dir, cost, (vertex, neighbor))
       //assign edges
-      var localAssignments = mutable.Map[Direction, (Int, Int)]()
-      val minCostsSorted = minCosts.filter(x => x._2._1 != Double.PositiveInfinity).toSeq.sortBy(e => e._2._1)
+      var localAssignments = Direction.values.map(d => (d, (-1,-1))).sortBy((d, _) => d.ordinal)
+      val minCostsSorted = minCosts.filter(x => x._2 != Double.PositiveInfinity).toSeq.sortBy(e => e._2)
       for candidate <- minCostsSorted do 
         //check for local assignment conflicts
-        if !localAssignments.contains(candidate._1) && !localAssignments.values.toSeq.contains(candidate._2._2) then
+        if localAssignments(candidate._1.ordinal)._2 == (-1,-1) && !localAssignments.map(e => e._2).contains(candidate._3) then
           //Check for global assignment conflicts
-          if !assignments(candidate._2._2._1).contains(candidate._1) && !assignments(candidate._2._2._2).contains(candidate._1.reverse) then
-            localAssignments(candidate._1) = candidate._2._2
+          if !assignments(candidate._3._1).contains(candidate._1) && !assignments(candidate._3._2).contains(candidate._1.reverse) then
+            localAssignments(candidate._1.ordinal) = (candidate._1, candidate._3)
             
             //add nodes to disjoint sets
             val sets = candidate._1 match
               case Direction.North | Direction.South => verticalSets
               case Direction.West | Direction.East => horizontalSets
-            val edge = candidate._2._2
+            val edge = candidate._3
             if !sets.contains(edge._1) then
               val _ = sets.mkSet(edge._1,  Set(edge._1))
             if !sets.contains(edge._2) then
@@ -112,9 +113,9 @@ object GreedyOrthogonalization:
             val _ = sets.union(edge._1, edge._2)
         
       //save assignments for node
-      assignments(vertex) = localAssignments.map(entry => (entry._1, entry._2._2)).toMap
+      assignments(vertex) = localAssignments.filter(e => e._2 != (-1, -1)).map(entry => (entry._1, entry._2._2)).toMap
       //with reverse direction
-      localAssignments.toSeq.foreach(a => assignments(a._2._2) = assignments(a._2._2) + (a._1.reverse -> a._2._1))
+      localAssignments.filter(e => e._2 != (-1, -1)).foreach(a => assignments(a._2._2) = assignments(a._2._2) + (a._1.reverse -> a._2._1))
 
     //calculate (median) positions for each disjoint set
     for v <- verticalSets.values if v.size > 0 do
