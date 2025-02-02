@@ -18,7 +18,7 @@ object SGDStressMinimization:
   
   
   def layout(cfg: Config)(rand: Random, graph: WeightedGraph, init: VertexLayout): VertexLayout =
-    val undirectedEdges = graph.edges.flatMap(e => Seq(WeightedEdge(e.from, e.to, e.weight), WeightedEdge(e.to, e.from, e.weight)))
+    val undirectedEdges = graph.edges.flatMap(e => Seq(e, WeightedEdge(e.to, e.from, e.weight)))
     val dij: MatrixView[Double] = floydWarshallApsp(graph.numberOfVertices, undirectedEdges)
     val n = graph.numberOfVertices
     
