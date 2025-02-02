@@ -11,8 +11,6 @@ import wueortho.util.mutable.DisjointSets
 import wueortho.util.Monoid
 import wueortho.data.mutable.Matrix.fill
 import wueortho.data.NodeIndex
-import wueortho.util.GraphConversions.toWeighted
-import wueortho.util.GraphConversions.undirected
 import wueortho.util.GraphConversions.wg2wd
 
 
@@ -44,14 +42,9 @@ object GreedyOrthogonalization:
     val verticalSets = DisjointSets[Int, Set[Int]]
     val horizontalSets = DisjointSets[Int, Set[Int]]
 
-    var assignments: mutable.Seq[Map[Direction, Int]] = mutable.Seq(init.nodes.map(x => Map.empty[Direction, Int])*)
+    val assignments: IndexedSeq[mutable.IndexedSeq[(Direction,(Int, Int))]] = IndexedSeq(init.nodes.map(_ => Direction.values.map(d => (d, (-1,-1))).sortBy((d, _) => d.ordinal))*)
 
     val allEdgeAngles = wueortho.data.mutable.Matrix.fill(n, n)(0)
-
-    def addUndirectedEdges(edges: Seq[WeightedEdge]) = 
-      edges.map(edge => (edge.from.toInt, edge.to.toInt))
-      .map((from, to) => (from, to)::(to, from)::Nil)
-      .flatMap(identity)
 
     def angleOfEdge(e1: Vec2D, e2: Vec2D) = 
        math.atan2((e2.x2-e1.x2),(e2.x1-e1.x1))
@@ -84,21 +77,23 @@ object GreedyOrthogonalization:
 
     for (vertex, deg) <- verticesOrderedByDegree do
       //calculate cost function for all edges starting at v
-      var minCosts = Direction.values.map(d => (d, Double.PositiveInfinity, (0,0))).sortBy((d, _, _) => d.ordinal)
+      val minCosts: mutable.IndexedSeq[(Direction, Double, (Int, Int))] = Direction.values.map(d => (d, Double.PositiveInfinity, (0,0))).sortBy((d, _, _) => d.ordinal)
 
+      //get for each direction edge within 45 degrees with minimal costs
       for neighbor <- undirectedGraph.vertices(vertex).neighbors.map(v => v.toNode.toInt) do
         for dir <- Direction.values do
           val cost = edgeAlignmentCost(allEdgeAngles(vertex, neighbor), dir)
           if minCosts(dir.ordinal)._2 > cost && math.abs(cost) < Math.PI/4
             then minCosts(dir.ordinal) = (dir, cost, (vertex, neighbor))
-      //assign edges
-      var localAssignments = Direction.values.map(d => (d, (-1,-1))).sortBy((d, _) => d.ordinal)
+      
+      //check for conflicts (i.e. double assignments, overrides) and maintain disjoint sets
+      val localAssignments: mutable.IndexedSeq[(Direction, (Int, Int))] = Direction.values.map(d => (d, (-1,-1))).sortBy((d, _) => d.ordinal)
       val minCostsSorted = minCosts.filter(x => x._2 != Double.PositiveInfinity).toSeq.sortBy(e => e._2)
       for candidate <- minCostsSorted do 
         //check for local assignment conflicts
         if localAssignments(candidate._1.ordinal)._2 == (-1,-1) && !localAssignments.map(e => e._2).contains(candidate._3) then
           //Check for global assignment conflicts
-          if !assignments(candidate._3._1).contains(candidate._1) && !assignments(candidate._3._2).contains(candidate._1.reverse) then
+          if assignments(candidate._3._1)(candidate._1.ordinal)._2 == (-1,-1) && assignments(candidate._3._2)(candidate._1.reverse.ordinal)._2 == (-1,-1) then
             localAssignments(candidate._1.ordinal) = (candidate._1, candidate._3)
             
             //add nodes to disjoint sets
@@ -113,11 +108,11 @@ object GreedyOrthogonalization:
             val _ = sets.union(edge._1, edge._2)
         
       //save assignments for node
-      assignments(vertex) = localAssignments.filter(e => e._2 != (-1, -1)).map(entry => (entry._1, entry._2._2)).toMap
+      localAssignments.filter(e => e._2 != (-1, -1)).foreach(a => assignments(a._2._1)(a._1.ordinal) = a)
       //with reverse direction
-      localAssignments.filter(e => e._2 != (-1, -1)).foreach(a => assignments(a._2._2) = assignments(a._2._2) + (a._1.reverse -> a._2._1))
+      localAssignments.filter(e => e._2 != (-1, -1)).foreach(a => assignments(a._2._2)(a._1.reverse.ordinal) = (a._1, (a._2._2, a._2._1)))
 
-    //calculate (median) positions for each disjoint set
+    //calculate (median) positions for each disjoint set and set nodes position to median
     for v <- verticalSets.values if v.size > 0 do
       val median = v.map(v => pos(v).x1).toSeq.sorted()(Math.floor(v.size/2.0).toInt)
       v.foreach(v => pos.update(v,Vec2D(median, pos(v).x2)))
@@ -128,6 +123,8 @@ object GreedyOrthogonalization:
 
     println(s"vertical Sets: ${verticalSets.values.foldLeft("")((s,e) => s.concat(e.toString()).toString() )}")
     println(s"horizontal Sets: ${horizontalSets.values.foldLeft("")((s,e) => s.concat(e.toString()).toString() )}")
+
+    //TODO: hierarchical ordering
 
     //rotate all points
     val rotatedPoints = pos.finish
