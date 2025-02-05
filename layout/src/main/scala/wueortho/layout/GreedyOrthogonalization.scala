@@ -12,11 +12,38 @@ import wueortho.util.Monoid
 import wueortho.data.mutable.Matrix.fill
 import wueortho.data.NodeIndex
 import wueortho.util.GraphConversions.wg2wd
+import wueortho.data.DiGraph
+import scala.compiletime.ops.double
+import wueortho.data.Graph
+import wueortho.data.SimpleEdge
+import wueortho.util.GraphSearch.bfs
 
 
 object GreedyOrthogonalization:
   
-  
+  def topologicalSort(ids: Seq[NodeIndex],neighbors: NodeIndex => Seq[NodeIndex]):Seq[NodeIndex] = 
+    val visited = mutable.BitSet.empty
+    val finished = mutable.BitSet.empty
+    val result  = mutable.ArrayBuffer.empty[NodeIndex]
+
+    var cycleFlag = false
+
+    def visit(v: NodeIndex):Unit =
+       if !cycleFlag && !finished.contains(v.toInt) then
+        if visited.contains(v.toInt) then cycleFlag = true
+        val _ = visited.add(v.toInt)
+        for u <- neighbors(v) do
+          visit(u)
+        val _ = finished.add(v.toInt)
+        result.append(v)
+
+    for v <- ids do
+      visit(v)
+      if cycleFlag then println("no topological ordering because of cycles!")
+
+    return result.toSeq 
+  end topologicalSort
+
   def layout(graph: WeightedGraph, init: VertexLayout): VertexLayout =
     val n = graph.numberOfVertices
     
@@ -96,7 +123,7 @@ object GreedyOrthogonalization:
           if assignments(candidate._3._1)(candidate._1.ordinal)._2 == (-1,-1) && assignments(candidate._3._2)(candidate._1.reverse.ordinal)._2 == (-1,-1) then
             localAssignments(candidate._1.ordinal) = (candidate._1, candidate._3)
             
-            //add nodes to disjoint sets
+            //add nodes to disjoint setsf
             val sets = candidate._1 match
               case Direction.North | Direction.South => verticalSets
               case Direction.West | Direction.East => horizontalSets
@@ -124,7 +151,59 @@ object GreedyOrthogonalization:
     println(s"vertical Sets: ${verticalSets.values.foldLeft("")((s,e) => s.concat(e.toString()).toString() )}")
     println(s"horizontal Sets: ${horizontalSets.values.foldLeft("")((s,e) => s.concat(e.toString()).toString() )}")
 
-    //TODO: hierarchical ordering
+    //TODO: topological ordering
+
+    //TODO: Construct graph with merged vertical nodes (and removed multi-edges) directed westwards
+    //contains only the mapping that is nontrivial (if node is in set with other nodes)
+    var nodeId2SetMap:mutable.IndexedSeq[Int] = mutable.IndexedSeq(graph.vertices.map(_ => -1)*)
+    verticalSets.values.zipWithIndex
+      .foreach((vertexSet, setId) => vertexSet.foreach(v => nodeId2SetMap(v) = setId))
+    
+    val numberContractedVertices =  nodeId2SetMap.filter(_ == -1).size + verticalSets.values.size
+    
+    val uncontractedVertices = nodeId2SetMap.zipWithIndex.filter(_._1 == -1).map((_, vertexId) => Left(vertexId))
+    val contractedVertices = verticalSets.values.zipWithIndex.map((_, setId) => Right(setId))
+    //map contracted =>  Either[vertexId, setId]
+    val verticalGraphVertices = uncontractedVertices.appendedAll(contractedVertices)
+
+    //TODO: Check if this will always work!
+    val normal2ContractedUnchecked = verticalGraphVertices.zipWithIndex
+      .flatMap((e, contrId) => e match
+        case Left(vertexId) => Seq((vertexId, contrId))
+        case Right(setId) => verticalSets.values(setId).map(vertexId => (vertexId,contrId))
+      ).sortBy((vertexId,_) => vertexId)
+      
+    val check = normal2ContractedUnchecked.foldLeft(Option(-1))((acc, x) => acc match
+      case Some(a) => if x._1 == a + 1 then Some(x._1) else None
+      case None => None
+     )
+
+    check match {
+      case None => println("Vertex indices were not ascending")
+      case _ => //vertices ordered ascending without skips
+    }
+    
+    val normal2Contracted = normal2ContractedUnchecked.map((_, a) => a)
+
+    val allEdgesEastWards = allEdges.filter(e => (pos(e.from.toInt).x1 < pos(e.to.toInt).x1))
+
+    val edgesInContractedGraph = allEdgesEastWards.map(e => (normal2Contracted(e.from.toInt), normal2Contracted(e.to.toInt)))
+      .distinct
+      .map(e => SimpleEdge(NodeIndex(e._1), NodeIndex(e._2)))
+
+    val verticalDiGraph = Graph.fromEdges(edgesInContractedGraph, numberContractedVertices).mkDiGraph
+      
+    val topSort = topologicalSort(verticalDiGraph.vertices.zipWithIndex.map((_, i) => NodeIndex(i)), x => verticalDiGraph.vertices(x.toInt).neighbors)
+    
+    println(topSort)
+
+    
+
+    //TODO: Same for southwards
+
+    //TODO: Determine topological ordering for those graphs
+
+    //TODO: Greedily assign position starting from high to low
 
     //rotate all points
     val rotatedPoints = pos.finish
