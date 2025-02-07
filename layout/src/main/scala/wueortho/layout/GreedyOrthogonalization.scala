@@ -17,6 +17,9 @@ import scala.compiletime.ops.double
 import wueortho.data.Graph
 import wueortho.data.SimpleEdge
 import wueortho.util.GraphSearch.bfs
+import wueortho.data.VertexBoxes
+import wueortho.data.Rect2D
+import wueortho.data.WeightedDiGraph
 
 
 object GreedyOrthogonalization:
@@ -37,14 +40,17 @@ object GreedyOrthogonalization:
         val _ = finished.add(v.toInt)
         result.append(v)
 
+    //get nodes without ingoing edges
+    val verticesWithIngoingEdges =  ids.flatMap(id => neighbors(id))
+
     for v <- ids do
-      visit(v)
+      if !verticesWithIngoingEdges.contains(v) then visit(v)
       if cycleFlag then println("no topological ordering because of cycles!")
 
     return result.toSeq 
   end topologicalSort
 
-  def layout(graph: WeightedGraph, init: VertexLayout): VertexLayout =
+  def layout(graph: WeightedGraph, init: VertexLayout, boxes: VertexBoxes): VertexLayout =
     val n = graph.numberOfVertices
     
     class PosVec(init: Seq[Vec2D]):
@@ -76,7 +82,7 @@ object GreedyOrthogonalization:
     def angleOfEdge(e1: Vec2D, e2: Vec2D) = 
        math.atan2((e2.x2-e1.x2),(e2.x1-e1.x1))
     
-    //TODO: assumes, that the graph is undirected. Will duplicate edges,
+    //TODO: assumes, that graph is undirected weighted graph
     val undirectedGraph = wg2wd(graph)
 
     val allEdges = undirectedGraph.edges
@@ -149,66 +155,151 @@ object GreedyOrthogonalization:
       v.foreach(v => pos.update(v, Vec2D(pos(v).x1, median)))
 
     println(s"vertical Sets: ${verticalSets.values.foldLeft("")((s,e) => s.concat(e.toString()).toString() )}")
-    println(s"horizontal Sets: ${horizontalSets.values.foldLeft("")((s,e) => s.concat(e.toString()).toString() )}")
+    println(s"horizontal Sets: ${horizontalSets.values.foldLeft("")((s,e) => s.concat(e.toString()).toString() )}")      
+
 
     //TODO: topological ordering
+    def compactGraph(graph: WeightedDiGraph, dir:Direction, disjointSets: DisjointSets[Int, Set[Int]]) = 
 
-    //TODO: Construct graph with merged vertical nodes (and removed multi-edges) directed westwards
-    //contains only the mapping that is nontrivial (if node is in set with other nodes)
-    var nodeId2SetMap:mutable.IndexedSeq[Int] = mutable.IndexedSeq(graph.vertices.map(_ => -1)*)
-    verticalSets.values.zipWithIndex
-      .foreach((vertexSet, setId) => vertexSet.foreach(v => nodeId2SetMap(v) = setId))
-    
-    val numberContractedVertices =  nodeId2SetMap.filter(_ == -1).size + verticalSets.values.size
-    
-    val uncontractedVertices = nodeId2SetMap.zipWithIndex.filter(_._1 == -1).map((_, vertexId) => Left(vertexId))
-    val contractedVertices = verticalSets.values.zipWithIndex.map((_, setId) => Right(setId))
-    //map contracted =>  Either[vertexId, setId]
-    val verticalGraphVertices = uncontractedVertices.appendedAll(contractedVertices)
+      //TODO: Change to Either[NodeIndex, Int]
+      def createMappingContracted2Normal(sets: DisjointSets[Int, Set[Int]]): IndexedSeq[Either[Int, Int]] = 
+        //TODO: Construct graph with merged vertical nodes (and removed multi-edges)
 
-    //TODO: Check if this will always work!
-    val normal2ContractedUnchecked = verticalGraphVertices.zipWithIndex
-      .flatMap((e, contrId) => e match
-        case Left(vertexId) => Seq((vertexId, contrId))
-        case Right(setId) => verticalSets.values(setId).map(vertexId => (vertexId,contrId))
-      ).sortBy((vertexId,_) => vertexId)
+        //contains only the mapping for nodes that are contained in a set
+        var nodeId2SetMap:mutable.IndexedSeq[Int] = mutable.IndexedSeq(graph.vertices.map(_ => -1)*)
+        sets.values.zipWithIndex
+          .foreach((vertexSet, setId) => vertexSet.foreach(v => nodeId2SetMap(v) = setId))
+        
+        val numberContractedVertices =  nodeId2SetMap.filter(_ == -1).size + sets.values.size
+        
+        val uncontractedVertices = nodeId2SetMap.zipWithIndex.filter(_._1 == -1).map((_, vertexId) => Left(vertexId))
+        val contractedVertices = sets.values.zipWithIndex.map((_, setId) => Right(setId))
+        //map contracted =>  Either[vertexId, setId]
+        val contracted2Normal = uncontractedVertices.appendedAll(contractedVertices)
+
+        return contracted2Normal.toIndexedSeq
+
+      def createMappingNormal2Contracted(contracted2Normal: IndexedSeq[Either[Int, Int]], sets: DisjointSets[Int, Set[Int]]): IndexedSeq[Int] = 
+        //TODO: Check if this will always work!
+        val normal2ContractedUnchecked = contracted2Normal.zipWithIndex
+          .flatMap((e, contrId) => e match
+            case Left(vertexId) => Seq((vertexId, contrId))
+            case Right(setId) => sets.values(setId).map(vertexId => (vertexId,contrId))
+          ).sortBy((vertexId,_) => vertexId)
+          
+        val check = normal2ContractedUnchecked.foldLeft(Option(-1))((acc, x) => acc match
+          case Some(a) => if x._1 == a + 1 then Some(x._1) else None
+          case None => None
+        )
+
+        check match {
+          case None => println("Vertex indices were not ascending")
+          case _ => //vertices ordered ascending without skips
+        }
+        
+        return normal2ContractedUnchecked.map((_, a) => a)
+
+      def createContractedGraph(graph: WeightedDiGraph,numberOfVertices: Int, mappingNormal2Contracted: IndexedSeq[Int], dir: Direction):DiGraph = 
+
+        def testEdgeFacing(e: WeightedEdge, dir: Direction) = dir match
+          case Direction.East => (pos(e.from.toInt).x1 < pos(e.to.toInt).x1)
+          case Direction.West => (pos(e.from.toInt).x1 > pos(e.to.toInt).x1)
+          case Direction.North => (pos(e.from.toInt).x2 < pos(e.to.toInt).x2)
+          case Direction.South => (pos(e.from.toInt).x2 > pos(e.to.toInt).x2) 
+
+        def testSelfEdge(e: WeightedEdge) = 
+          e.from == e.to
+
+        val allEdgesWithCorrectDirection = graph.edges.filter(e => testEdgeFacing(e, dir) && !testSelfEdge(e))
+
+        val edgesInContractedGraph = allEdgesWithCorrectDirection.map(e => (mappingNormal2Contracted(e.from.toInt), mappingNormal2Contracted(e.to.toInt)))
+          .distinct
+          .map(e => SimpleEdge(NodeIndex(e._1), NodeIndex(e._2)))
+          .filter(e => !testSelfEdge(e.withWeight(1.0)))
+
+        return Graph.fromEdges(edgesInContractedGraph, numberOfVertices).mkDiGraph
+
+      val mappingContracted2Normal = createMappingContracted2Normal(disjointSets)
+      val numberOfContractedVertices = mappingContracted2Normal.size
+      val mappingNormal2Contracted = createMappingNormal2Contracted(mappingContracted2Normal, disjointSets)
+
+      //graph with vertial aligned vertices contracted, TODO: does this need to be in the oppositve order
+      val contracedDiGraph = createContractedGraph(graph, numberOfContractedVertices, mappingNormal2Contracted, dir)  
       
-    val check = normal2ContractedUnchecked.foldLeft(Option(-1))((acc, x) => acc match
-      case Some(a) => if x._1 == a + 1 then Some(x._1) else None
-      case None => None
-     )
+      println(s"All Edges facing ${dir.toString()}")
+      println(s"contracted graph ${contracedDiGraph.vertices.zipWithIndex.map((e,i) => s"${i} -> ${e.toString()} \n" ).toString()}")
 
-    check match {
-      case None => println("Vertex indices were not ascending")
-      case _ => //vertices ordered ascending without skips
-    }
-    
-    val normal2Contracted = normal2ContractedUnchecked.map((_, a) => a)
-
-    val allEdgesEastWards = allEdges.filter(e => (pos(e.from.toInt).x1 < pos(e.to.toInt).x1))
-
-    val edgesInContractedGraph = allEdgesEastWards.map(e => (normal2Contracted(e.from.toInt), normal2Contracted(e.to.toInt)))
-      .distinct
-      .map(e => SimpleEdge(NodeIndex(e._1), NodeIndex(e._2)))
-
-    val verticalDiGraph = Graph.fromEdges(edgesInContractedGraph, numberContractedVertices).mkDiGraph
+      val topSort = topologicalSort(contracedDiGraph.vertices.zipWithIndex.map((_, i) => NodeIndex(i)), x => contracedDiGraph.vertices(x.toInt).neighbors)
       
-    val topSort = topologicalSort(verticalDiGraph.vertices.zipWithIndex.map((_, i) => NodeIndex(i)), x => verticalDiGraph.vertices(x.toInt).neighbors)
-    
-    println(topSort)
+      println(topSort)
 
-    
+      if topSort.length > 0 then
 
-    //TODO: Same for southwards
+        //TODO Only align, if there are more than two nodes in topological ordering
+        //allign every node v such that it has minimum position of all nodes {u1, ..., uk} with (v, u_i) in directed Edges - size of v
+        //does not change position if there is no outgoing edge
+        //val rightAlignedContractedPos = topSort.foldLeft(IndexedSeq((topSort.last, pos(topSort.last.toInt))):IndexedSeq[(NodeIndex, Vec2D)])((acc, v) => )
+        var contractedPos = mutable.IndexedSeq(mappingContracted2Normal.map(normal => normal match
+          case Left(i) => pos(i)
+          case Right(i) => pos(disjointSets.values(i).last) //is already median position
+        )*)
 
-    //TODO: Determine topological ordering for those graphs
+        val contractedBoxes = mappingContracted2Normal.map(normal => normal match
+          case Left(i) => boxes.asRects(i)
+          case Right(i) => disjointSets.values(i).map(v => boxes.asRects(v)).toSeq.sortBy(b => b.span.len).last
+        )
 
-    //TODO: Greedily assign position starting from high to low
+        for i <- topSort do
+          //test if there are any outgoing edges
+          if contracedDiGraph.vertices(i.toInt).neighbors.length > 0 then
+            // vertexbox of i
+            //TODO: span.x1 is only valid for horizontal size 
+            val box = contractedBoxes(i.toInt)          
+
+            //val neighborLeftBoundary = contracedDiGraph.vertices(i.toInt).neighbors.map(n =>  contractedPos(n.toInt) - contractedBoxes(n.toInt).span).sortBy(v2d => -v2d.x1).last
+            val neighborLeftBoundary = contracedDiGraph.vertices(i.toInt).neighbors
+              .map(n => dir match
+                case Direction.North => contractedPos(n.toInt) - contractedBoxes(n.toInt).span
+                case Direction.East => contractedPos(n.toInt) - contractedBoxes(n.toInt).span
+                case Direction.South => contractedPos(n.toInt) + contractedBoxes(n.toInt).span
+                case Direction.West => contractedPos(n.toInt) + contractedBoxes(n.toInt).span
+               )
+              .sortBy(v2d => dir match
+                case Direction.North => -v2d.x2
+                case Direction.East => -v2d.x1
+                case Direction.South => v2d.x2
+                case Direction.West => v2d.x1
+               )
+              .last
+
+            println(s"moved contracted node ${i} by ${(contractedPos(i.toInt).x1 + box.span.x1 ) - (neighborLeftBoundary.x1 - box.span.x1)}")
+
+            val newPos = dir match
+              case Direction.West => Vec2D(neighborLeftBoundary.x1 + box.span.x1, contractedPos(i.toInt).x2)
+              case Direction.East => Vec2D(neighborLeftBoundary.x1 - box.span.x1, contractedPos(i.toInt).x2)
+              case Direction.North => Vec2D(contractedPos(i.toInt).x1, neighborLeftBoundary.x2 - box.span.x2)
+              case Direction.South => Vec2D(contractedPos(i.toInt).x1, neighborLeftBoundary.x2 + box.span.x2)
+
+            //update box positions
+            contractedPos(i.toInt) = newPos
+
+        //apply contracted positions to normal positions
+        contractedPos.zipWithIndex.flatMap((p, i) => mappingContracted2Normal(i) match
+          case Left(v) => Seq((v, p))
+          case Right(set) => disjointSets.values(set).map(v => (v, p))
+        ).foreach((v, p) => dir match
+          case Direction.West | Direction.East => pos.update(v, Vec2D(p.x1,pos(v).x2))
+          case Direction.North | Direction.South => pos.update(v, Vec2D(pos(v).x1, p.x2))
+        )
+
+
+    compactGraph(undirectedGraph, Direction.East, verticalSets)
+    compactGraph(undirectedGraph, Direction.South, horizontalSets)
 
     //rotate all points
-    val rotatedPoints = pos.finish
+    val alignedPos = pos.finish
 
-    VertexLayout(rotatedPoints)
+    VertexLayout(alignedPos)
   end layout
 
 

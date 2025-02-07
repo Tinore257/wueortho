@@ -113,7 +113,7 @@ object AlgorithmicSteps:
   end given
 
   given StepImpl[step.GreedyOrthogonalization] with
-    override transparent inline def stagesUsed = ("layout" -> Stage.Layout, "graph" -> Stage.Graph)
+    override transparent inline def stagesUsed = ("layout" -> Stage.Layout, "graph" -> Stage.Graph, "VertexBoxes" -> Stage.VertexBoxes)
 
     override transparent inline def stagesModified = Stage.Layout
 
@@ -124,15 +124,15 @@ object AlgorithmicSteps:
       vertex""".stripMargin
 
     override def runToStage(s: WithTags[step.GreedyOrthogonalization], cache: StageCache) = for
-      (inLayout, graph) <- UseStages(s, cache, stagesUsed)
-      _ <- UpdateSingleStage(s, cache, stagesModified)(layout( graph, inLayout))
+      (inLayout, graph, boxes) <- UseStages(s, cache, stagesUsed)
+      _ <- UpdateSingleStage(s, cache, stagesModified)(layout( graph, inLayout, boxes))
     yield noRt
 
-    private def layout(graph: BasicGraph, init: VertexLayout) =
+    private def layout(graph: BasicGraph, init: VertexLayout, boxes: VertexBoxes) =
       val run = GreedyOrthogonalization.layout
       val weighted = graph.withWeights(using GraphConversions.withUniformWeights(w = 1))
       val res = RunningTime.of("Greedy direction assignment")(() =>
-        run(weighted, init))
+        run(weighted, init, boxes))
       res.get()
     end layout
   end given
