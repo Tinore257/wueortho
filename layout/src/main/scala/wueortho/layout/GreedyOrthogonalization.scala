@@ -47,8 +47,9 @@ object GreedyOrthogonalization:
       if !verticesWithIngoingEdges.contains(v) then visit(v)
       if cycleFlag then println("no topological ordering because of cycles!")
 
-    return result.toSeq 
+    return result.toSeq
   end topologicalSort
+
 
   def layout(graph: WeightedGraph, init: VertexLayout, boxes: VertexBoxes): VertexLayout =
     val n = graph.numberOfVertices
@@ -66,8 +67,7 @@ object GreedyOrthogonalization:
     val pos = PosVec(init.nodes);
 
     if n < 2 then return VertexLayout(pos.finish)
-     
-    
+        
     given Monoid[Set[Int]] with
       def zero: Set[Int] = Set.empty
       override def apply(a: Set[Int], b: Set[Int]): Set[Int] = a union b
@@ -101,12 +101,47 @@ object GreedyOrthogonalization:
     def edgeAlignmentCost(angle: Double, dir: Direction) = 
       val semiAxisAngle = directionToAngle(dir)
       Math.abs(angle - semiAxisAngle) min Math.abs(angle - Math.PI*2 - semiAxisAngle)
+    
+    def intersect(e1: WeightedEdge, e2: WeightedEdge):Boolean =
+      def orientationTest(e:WeightedEdge, node:NodeIndex):Double = 
+        val p = pos(e.from.toInt)
+        val q = pos(e.to.toInt)
+        val r = pos(node.toInt)
+        (q.x2 - p.x2) * (r.x1 - q.x1) -
+        (q.x1 - p.x1) * (r.x2 - q.x2)
+
+      def onSegment(p1: NodeIndex, p2: NodeIndex, node: NodeIndex) = 
+        val p = pos(p1.toInt)
+        val q = pos(p2.toInt)
+        val r = pos(node.toInt)
+        q.x1 <= (p.x1 max r.x1) && q.x1 >= (p.x1 min r.x1) &&
+        q.x2 <= (p.x2 max r.x2) && q.x2 >= (p.x2 min r.x2)
+      
+      val o1 = orientationTest(e1, e2.from)
+      val o2 = orientationTest(e1, e2.to)
+      val o3 = orientationTest(e2, e1.from)
+      val o4 = orientationTest(e2, e1.to)
+
+      //general case
+      if (o1 != o2 && o3 != o4) then return true
+      
+      //edge-cases with colinearity
+      if (o1 == 0 && onSegment(e1.from, e2.from, e1.to)) then return true
+      if (o2 == 0 && onSegment(e1.from, e2.to, e1.from)) then return true
+      if (o3 == 0 && onSegment(e2.from, e1.from, e2.to)) then return true
+      if (o4 == 0 && onSegment(e2.from, e1.to, e2.to)) then return true
+      false
+ 
 
     val verticesOrderedByDegree = undirectedGraph.vertices
       .zipWithIndex
       .map((v, i) => (i, v.neighbors.length))
       .sortBy((_,l) => l)
       .reverse
+
+    def isAligned(e: WeightedEdge) = 
+      verticalSets.contains(e.from.toInt) && verticalSets.contains(e.to.toInt) 
+      || horizontalSets.contains(e.from.toInt) && horizontalSets.contains(e.to.toInt) 
 
     for (vertex, deg) <- verticesOrderedByDegree do
       //calculate cost function for all edges starting at v
@@ -127,18 +162,20 @@ object GreedyOrthogonalization:
         if localAssignments(candidate._1.ordinal)._2 == (-1,-1) && !localAssignments.map(e => e._2).contains(candidate._3) then
           //Check for global assignment conflicts
           if assignments(candidate._3._1)(candidate._1.ordinal)._2 == (-1,-1) && assignments(candidate._3._2)(candidate._1.reverse.ordinal)._2 == (-1,-1) then
-            localAssignments(candidate._1.ordinal) = (candidate._1, candidate._3)
-            
-            //add nodes to disjoint setsf
-            val sets = candidate._1 match
-              case Direction.North | Direction.South => verticalSets
-              case Direction.West | Direction.East => horizontalSets
-            val edge = candidate._3
-            if !sets.contains(edge._1) then
-              val _ = sets.mkSet(edge._1,  Set(edge._1))
-            if !sets.contains(edge._2) then
-              val _ = sets.mkSet(edge._2,  Set(edge._2))
-            val _ = sets.union(edge._1, edge._2)
+            //assigns an edge only if it does not cross any assigned edge
+            if graph.edges.foldLeft(true)((acc, e) => acc &&  (!isAligned(e) || intersect(e, WeightedEdge(NodeIndex(candidate._3._1),NodeIndex(candidate._3._2), 1.0)))) then 
+              localAssignments(candidate._1.ordinal) = (candidate._1, candidate._3)
+
+              //add nodes to disjoint setsf
+              val sets = candidate._1 match
+                case Direction.North | Direction.South => verticalSets
+                case Direction.West | Direction.East => horizontalSets
+              val edge = candidate._3
+              if !sets.contains(edge._1) then
+                val _ = sets.mkSet(edge._1,  Set(edge._1))
+              if !sets.contains(edge._2) then
+                val _ = sets.mkSet(edge._2,  Set(edge._2))
+              val _ = sets.union(edge._1, edge._2)
         
       //save assignments for node
       localAssignments.filter(e => e._2 != (-1, -1)).foreach(a => assignments(a._2._1)(a._1.ordinal) = a)
@@ -157,6 +194,8 @@ object GreedyOrthogonalization:
     println(s"vertical Sets: ${verticalSets.values.foldLeft("")((s,e) => s.concat(e.toString()).toString() )}")
     println(s"horizontal Sets: ${horizontalSets.values.foldLeft("")((s,e) => s.concat(e.toString()).toString() )}")      
 
+
+        
 
     //TODO: topological ordering
     def compactGraph(graph: WeightedDiGraph, dir:Direction, disjointSets: DisjointSets[Int, Set[Int]]) = 
@@ -236,7 +275,7 @@ object GreedyOrthogonalization:
       if topSort.length > 0 then
 
         //TODO Only align, if there are more than two nodes in topological ordering
-        //allign every node v such that it has minimum position of all nodes {u1, ..., uk} with (v, u_i) in directed Edges - size of v
+        //allignW every node v such that it has minimum position of all nodes {u1, ..., uk} with (v, u_i) in directed Edges - size of v
         //does not change position if there is no outgoing edge
         //val rightAlignedContractedPos = topSort.foldLeft(IndexedSeq((topSort.last, pos(topSort.last.toInt))):IndexedSeq[(NodeIndex, Vec2D)])((acc, v) => )
         var contractedPos = mutable.IndexedSeq(mappingContracted2Normal.map(normal => normal match
@@ -294,6 +333,8 @@ object GreedyOrthogonalization:
 
 
     compactGraph(undirectedGraph, Direction.East, verticalSets)
+    compactGraph(undirectedGraph, Direction.West, verticalSets)
+    compactGraph(undirectedGraph, Direction.North, horizontalSets)
     compactGraph(undirectedGraph, Direction.South, horizontalSets)
 
     //rotate all points
