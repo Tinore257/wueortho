@@ -56,11 +56,10 @@ object AlgorithmicSteps:
 
 
   given StepImpl[step.SGDLayout] with
-    override transparent inline def stagesUsed = ("graph", Stage.Graph)
-
+    override transparent inline def stagesUsed = ("graph" -> Stage.Graph, "vertexBoxes" -> Stage.VertexBoxes)
     override transparent inline def stagesModified = Stage.Layout
 
-    override def tags = GetSingleTag(stagesUsed)
+    override def tags = GetTags(stagesUsed)
 
     override def helpText =
       s"""Perform stochastical-gradient-descent vertex layout for a given graph.
@@ -70,7 +69,8 @@ object AlgorithmicSteps:
          |    The algorithm chooses the one with the least straight-line crossings""".stripMargin
 
     override def runToStage(s: WithTags[step.SGDLayout], cache: StageCache) = for
-      graph <- UseSingleStage(s, cache, stagesUsed)
+      (graph, vertexBoxes) <- UseStages(s, cache, stagesUsed)
+      _ = println(s"VertexBoxen sind: ${vertexBoxes.toString()}")
       res = layout(s.step.iterations, s.step.seed, s.step.repetitions, graph)
       _ <- UpdateSingleStage(s, cache, stagesModified)(res.get)
     yield res

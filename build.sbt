@@ -10,6 +10,7 @@ ThisBuild / scalacOptions ++= compilerOptions
 
 lazy val core = project.settings(
   name := "wueortho-core",
+  javacOptions ++= Seq("-source", "17", "-target", "17"),
 )
 
 lazy val io = project.settings(

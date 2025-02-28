@@ -143,16 +143,18 @@ object GreedyOrthogonalization:
       verticalSets.contains(e.from.toInt) && verticalSets.contains(e.to.toInt) 
       || horizontalSets.contains(e.from.toInt) && horizontalSets.contains(e.to.toInt) 
 
+    case class Candidate(dir: Direction, weight: Double, edge:(Int, Int))
+
     for (vertex, deg) <- verticesOrderedByDegree do
       //calculate cost function for all edges starting at v
-      val minCosts: mutable.IndexedSeq[(Direction, Double, (Int, Int))] = Direction.values.map(d => (d, Double.PositiveInfinity, (0,0))).sortBy((d, _, _) => d.ordinal)
+      val minCosts: mutable.IndexedSeq[Candidate] = Direction.values.map(d => Candidate(d, Double.PositiveInfinity, (0,0))).sortBy(_.dir.ordinal)
 
       //get for each direction edge within 45 degrees with minimal costs
       for neighbor <- undirectedGraph.vertices(vertex).neighbors.map(v => v.toNode.toInt) do
         for dir <- Direction.values do
           val cost = edgeAlignmentCost(allEdgeAngles(vertex, neighbor), dir)
           if minCosts(dir.ordinal)._2 > cost && math.abs(cost) < Math.PI/4
-            then minCosts(dir.ordinal) = (dir, cost, (vertex, neighbor))
+            then minCosts(dir.ordinal) = Candidate(dir, cost, (vertex, neighbor))
       
       //check for conflicts (i.e. double assignments, overrides) and maintain disjoint sets
       val localAssignments: mutable.IndexedSeq[(Direction, (Int, Int))] = Direction.values.map(d => (d, (-1,-1))).sortBy((d, _) => d.ordinal)
