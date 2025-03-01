@@ -161,18 +161,18 @@ object GreedyOrthogonalization:
       val minCostsSorted = minCosts.filter(x => x._2 != Double.PositiveInfinity).toSeq.sortBy(e => e._2)
       for candidate <- minCostsSorted do 
         //check for local assignment conflicts
-        if localAssignments(candidate._1.ordinal)._2 == (-1,-1) && !localAssignments.map(e => e._2).contains(candidate._3) then
+        if localAssignments(candidate.dir.ordinal)._2 == (-1,-1) && !localAssignments.map(e => e._2).contains(candidate.edge) then
           //Check for global assignment conflicts
-          if assignments(candidate._3._1)(candidate._1.ordinal)._2 == (-1,-1) && assignments(candidate._3._2)(candidate._1.reverse.ordinal)._2 == (-1,-1) then
+          if assignments(candidate.edge._1)(candidate.dir.ordinal)._2 == (-1,-1) && assignments(candidate.edge._2)(candidate.dir.reverse.ordinal)._2 == (-1,-1) then
             //assigns an edge only if it does not cross any assigned edge
-            if graph.edges.foldLeft(true)((acc, e) => acc &&  (!isAligned(e) || intersect(e, WeightedEdge(NodeIndex(candidate._3._1),NodeIndex(candidate._3._2), 1.0)))) then 
-              localAssignments(candidate._1.ordinal) = (candidate._1, candidate._3)
+            if graph.edges.foldLeft(true)((acc, e) => acc &&  (!isAligned(e) || !intersect(e, WeightedEdge(NodeIndex(candidate.edge._1),NodeIndex(candidate.edge._2), 1.0)))) then 
+              localAssignments(candidate.dir.ordinal) = (candidate.dir, candidate.edge)
 
-              //add nodes to disjoint setsf
-              val sets = candidate._1 match
+              //add nodes to disjoint sets
+              val sets = candidate.dir match
                 case Direction.North | Direction.South => verticalSets
                 case Direction.West | Direction.East => horizontalSets
-              val edge = candidate._3
+              val edge = candidate.edge
               if !sets.contains(edge._1) then
                 val _ = sets.mkSet(edge._1,  Set(edge._1))
               if !sets.contains(edge._2) then
@@ -185,12 +185,13 @@ object GreedyOrthogonalization:
       localAssignments.filter(e => e._2 != (-1, -1)).foreach(a => assignments(a._2._2)(a._1.reverse.ordinal) = (a._1, (a._2._2, a._2._1)))
 
     //calculate (median) positions for each disjoint set and set nodes position to median
-    for v <- verticalSets.values if v.size > 0 do
-      val median = v.map(v => pos(v).x1).toSeq.sorted()(Math.floor(v.size/2.0).toInt)
-      v.foreach(v => pos.update(v,Vec2D(median, pos(v).x2)))
+    for vertices <- verticalSets.values if vertices.size > 0 do
+      val medianSeq = vertices.toSeq.map(v => pos(v).x1).sorted
+      val median = medianSeq(Math.floor(vertices.size.toDouble/2.0).toInt)
+      vertices.foreach(v => pos.update(v,Vec2D(median, pos(v).x2)))
 
     for v <- horizontalSets.values if v.size > 0 do
-      val median = v.map(v => pos(v).x2).toSeq.sorted()(Math.floor(v.size/2.0).toInt)
+      val median = v.toSeq.map(v => pos(v).x2).sorted()(Math.floor(v.size/2.0).toInt)
       v.foreach(v => pos.update(v, Vec2D(pos(v).x1, median)))
 
     println(s"vertical Sets: ${verticalSets.values.foldLeft("")((s,e) => s.concat(e.toString()).toString() )}")
@@ -312,8 +313,6 @@ object GreedyOrthogonalization:
                 case Direction.West => v2d.x1
                )
               .last
-
-            println(s"moved contracted node ${i} by ${(contractedPos(i.toInt).x1 + box.span.x1 ) - (neighborLeftBoundary.x1 - box.span.x1)}")
 
             val newPos = dir match
               case Direction.West => Vec2D(neighborLeftBoundary.x1 + box.span.x1, contractedPos(i.toInt).x2)
