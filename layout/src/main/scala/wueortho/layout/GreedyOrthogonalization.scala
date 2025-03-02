@@ -20,6 +20,7 @@ import wueortho.util.GraphSearch.bfs
 import wueortho.data.VertexBoxes
 import wueortho.data.Rect2D
 import wueortho.data.WeightedDiGraph
+import scala.collection.mutable.TreeMap
 
 
 object GreedyOrthogonalization:
@@ -165,10 +166,10 @@ object GreedyOrthogonalization:
           //Check for global assignment conflicts
           if assignments(candidate.edge._1)(candidate.dir.ordinal)._2 == (-1,-1) && assignments(candidate.edge._2)(candidate.dir.reverse.ordinal)._2 == (-1,-1) then
             //assigns an edge only if it does not cross any assigned edge
-            if graph.edges.foldLeft(true)((acc, e) => acc &&  (!isAligned(e) || !intersect(e, WeightedEdge(NodeIndex(candidate.edge._1),NodeIndex(candidate.edge._2), 1.0)))) then 
+            if true || graph.edges.foldLeft(true)((acc, e) => acc &&  !(isAligned(e) && intersect(e, WeightedEdge(NodeIndex(candidate.edge._1),NodeIndex(candidate.edge._2), 1.0)))) then 
               localAssignments(candidate.dir.ordinal) = (candidate.dir, candidate.edge)
 
-              //add nodes to disjoint sets
+              //add nodes to disjoint setsln
               val sets = candidate.dir match
                 case Direction.North | Direction.South => verticalSets
                 case Direction.West | Direction.East => horizontalSets
@@ -268,13 +269,10 @@ object GreedyOrthogonalization:
       //graph with vertial aligned vertices contracted, TODO: does this need to be in the oppositve order
       val contracedDiGraph = createContractedGraph(graph, numberOfContractedVertices, mappingNormal2Contracted, dir)  
       
-      println(s"All Edges facing ${dir.toString()}")
-      println(s"contracted graph ${contracedDiGraph.vertices.zipWithIndex.map((e,i) => s"${i} -> ${e.toString()} \n" ).toString()}")
+      //println(s"contracted graph ${contracedDiGraph.vertices.zipWithIndex.map((e,i) => s"${i} -> ${e.toString()} \n" ).toString()}")
 
       val topSort = topologicalSort(contracedDiGraph.vertices.zipWithIndex.map((_, i) => NodeIndex(i)), x => contracedDiGraph.vertices(x.toInt).neighbors)
       
-      println(topSort)
-
       if topSort.length > 0 then
 
         //TODO Only align, if there are more than two nodes in topological ordering
@@ -338,8 +336,80 @@ object GreedyOrthogonalization:
     compactGraph(undirectedGraph, Direction.North, horizontalSets)
     compactGraph(undirectedGraph, Direction.South, horizontalSets)
 
+    //pos.a.zipWithIndex.foreach((p, i) => println(s"Vertex: ${i} has position  ${p.toString()}"))
+    
+    def sweeplineVBSeparator(dir:Direction, graph: WeightedGraph) =
+
+      //TODO: xpos is not a good name. It is the position in the direction of sweeping
+      case class Segment(xpos: Double, bot: Double, top: Double)
+
+      //sweepline algorithm to move nodes to remove overlapping vertex-boxes
+      
+      //init bbst with dummy segment
+      var bbst = java.util.TreeMap[Double, Segment]()
+      bbst.put(0.0,Segment(Double.NegativeInfinity, Double.NegativeInfinity, Double.PositiveInfinity))
+
+      //init event queue
+      val eventQueue = graph.vertices.zipWithIndex.map((_, i) => (pos(i), i)).sortBy((p, _)=> dir match
+        case Direction.East => p.x1
+        case Direction.West => -p.x1
+        case Direction.South => p.x2
+        case Direction.North => -p.x2).map((_,i)=> i)
+
+      for currentBoxId <- eventQueue.iterator do
+        //finde interval in BBST
+        val boxBounds = (pos(currentBoxId).x2 - boxes(currentBoxId).span.x2/2.0, pos(currentBoxId).x2 + boxes(currentBoxId).span.x2/2.0)
+        
+        //beide Segmente, die kleiner/größer als das aktuelle Intervall sind, werden gefunden
+        val lowerIntervalSegment = bbst.lowerEntry(boxBounds._1)
+        val upperIntervalSegment = bbst.higherEntry(boxBounds._2)    
+
+        //val interval = 
+        //(0 to graph.numberOfVertices).foldLeft(lowerIntervalSegment)(())
+        var interval: Seq[(Double, Segment)] = Seq((lowerIntervalSegment.getKey(), lowerIntervalSegment.getValue()));
+        var lastElement = lowerIntervalSegment
+        while lastElement.getKey() != upperIntervalSegment.getKey() && lastElement.getKey() != Double.PositiveInfinity do
+          lastElement = bbst.ceilingEntry(lastElement.getKey())
+          val currentEntry = lastElement
+          interval = interval.appended((currentEntry.getKey(), currentEntry.getValue()))
+
+        //calculate edge that is max in the sweeping direction 
+        val maxRightSegment = interval.maxBy(_._2.xpos)
+
+        val newPosition = maxRightSegment._2.xpos max (dir match
+          case Direction.East | Direction.West => pos(currentBoxId).x1
+          case Direction.North | Direction.South => pos(currentBoxId).x2)
+
+        //get l interval (lowest segment insersecting current segment)
+        val l = if boxBounds._2 < lowerIntervalSegment.getValue().top then lowerIntervalSegment else bbst.ceilingEntry(lowerIntervalSegment.getKey())
+        //get u interval (highest segment insersecting current segment)
+        val u = if boxBounds._2 > upperIntervalSegment.getValue().bot then upperIntervalSegment else bbst.floorEntry(upperIntervalSegment.getKey())
+        
+        //remove all segments from I 
+        interval.foreach(s => bbst.remove(s._1))
+
+        //add l, if it is not completely contained inside current segment
+        if l.getValue().bot < boxBounds._1 then bbst.put(l.getKey(), l.getValue())
+        //add u, if it is not completely contained inside current segment
+        if u.getValue().top < boxBounds._2 then bbst.put(u.getKey(), u.getValue())
+
+        //put current segment into bbst
+        //TODO: Dependend on dir!
+        val height = boxes(currentBoxId).span.x2
+        val b = Segment(newPosition, newPosition-height, newPosition+height) 
+        //TODO: Dependend on dir!
+        bbst.put(pos(currentBoxId)._2, b)
+
+        //set new position
+        pos(currentBoxId) = dir match
+          case Direction.North | Direction.South => Vec2D(newPosition, pos(currentBoxId).x2) 
+          case Direction.East | Direction.West => Vec2D(pos(currentBoxId).x1, newPosition)
+
+        
+    
     //rotate all points
     val alignedPos = pos.finish
+
 
     VertexLayout(alignedPos)
   end layout
