@@ -20,9 +20,10 @@ import wueortho.util.GraphSearch.bfs
 import wueortho.data.VertexBoxes
 import wueortho.data.Rect2D
 import wueortho.data.WeightedDiGraph
-import scala.collection.mutable.TreeMap
 import wueortho.data.BasicGraph
 import java.util.Map.Entry
+import scala.collection.mutable.TreeMap
+import scala.collection.immutable.Stream.Empty
 
 object GreedyOrthogonalization:
 
@@ -244,12 +245,12 @@ object GreedyOrthogonalization:
     ): mutable.IndexedSeq[Vec2D] =
 
       // TODO: xpos is not a good name. It is the position in the direction of sweeping
-      case class Segment(xpos: Double, bot: Double, top: Double)
+      case class Segment(xpos: Double, bot: Double, top: Double) derives CanEqual
 
       // sweepline algorithm to move nodes to remove overlapping vertex-boxes
 
       // init bbst with dummy segment
-      var bbst = java.util.TreeMap[Double, Segment]()
+      var bbst = TreeMap[Double, Segment]()
       bbst.put(0.0, Segment(Double.NegativeInfinity, Double.NegativeInfinity, Double.PositiveInfinity))
 
       // init event queue
@@ -267,29 +268,35 @@ object GreedyOrthogonalization:
 
       for currentBoxId <- eventQueue.iterator do
         // finde interval in BBST
-        val boxBounds = (
+        val boxBounds = Segment(
+          pos(currentBoxId).x2,
           pos(currentBoxId).x2 - boxes(currentBoxId).span.x2 / 2.0,
           pos(currentBoxId).x2 + boxes(currentBoxId).span.x2 / 2.0,
         )
 
+        case class Entry(key: Double, value: Segment)
         // beide Segmente, die kleiner/größer als das aktuelle Intervall sind, werden gefunden
         var lowerIntervalSegment =
-          if bbst.floorEntry(boxBounds._1) eq null then bbst.ceilingEntry(boxBounds._1)
-          else bbst.floorEntry(boxBounds._1)
+          bbst.get(boxBounds.bot) match
+            case Some(s) => Entry(boxBounds.bot, bbst.get(boxBounds.bot).get)
+            case None    =>
+              Entry.apply.tupled(bbst.maxBefore(boxBounds.bot).getOrElse(bbst.minAfter(boxBounds.bot).get))
         var upperIntervalSegment =
-          if bbst.ceilingEntry(boxBounds._2) eq null then bbst.floorEntry(boxBounds._2)
-          else bbst.ceilingEntry(boxBounds._2)
+          bbst.get(boxBounds.top) match
+            case Some(s) => Entry(boxBounds.top, bbst.get(boxBounds.top).get)
+            case None    =>
+              Entry.apply.tupled(bbst.minAfter(boxBounds.top).getOrElse(bbst.maxBefore(boxBounds.top).get))
 
         // val interval = k
         // (0 to graph.numberOfVertices).foldLeft(lowerIntervalSegment)(())
-        var interval: Seq[(Double, Segment)] = Seq((lowerIntervalSegment.getKey(), lowerIntervalSegment.getValue()));
+        var interval: Seq[(Double, Segment)] = Seq((lowerIntervalSegment.key, lowerIntervalSegment.value));
         var lastElement                      = lowerIntervalSegment
-        while lastElement.getKey() != upperIntervalSegment.getKey() && lastElement.getValue().top != Double
-            .PositiveInfinity
+        while lastElement.key != upperIntervalSegment.key && lastElement.value.top != Double.PositiveInfinity
         do
-          lastElement = bbst.higherEntry(lastElement.getKey())
+          lastElement = Entry.apply
+            .tupled(bbst.minAfter(lastElement.key).getOrElse((upperIntervalSegment.key, upperIntervalSegment.value)))
           val currentEntry = lastElement
-          interval = interval.appended((currentEntry.getKey(), currentEntry.getValue()))
+          interval = interval.appended((currentEntry.key, currentEntry.value))
 
         // calculate edge that is max in the sweeping direction
         val maxRightSegment = interval.maxBy(_._2.xpos)
@@ -301,20 +308,26 @@ object GreedyOrthogonalization:
 
         // get l interval (lowest segment insersecting current segment)
         val l =
-          if boxBounds._2 < lowerIntervalSegment.getValue().top then lowerIntervalSegment
-          else bbst.ceilingEntry(lowerIntervalSegment.getKey())
+          if lowerIntervalSegment.value.top > boxBounds.bot then lowerIntervalSegment
+          else
+            Entry.apply.tupled(
+              bbst.minAfter(lowerIntervalSegment.key).getOrElse(sys.error("Segment was expected but not found!")),
+            )
         // get u interval (highest segment insersecting current segment)
         val u =
-          if boxBounds._2 > upperIntervalSegment.getValue().bot then upperIntervalSegment
-          else bbst.floorEntry(upperIntervalSegment.getKey())
+          if upperIntervalSegment.value.bot < boxBounds.top then upperIntervalSegment
+          else
+            Entry.apply.tupled(
+              bbst.maxBefore(upperIntervalSegment.key).getOrElse(sys.error("Segment was expected but not found!")),
+            )
 
         // remove all segments from I
         interval.foreach(s => bbst.remove(s._1))
 
         // add l, if it is not completely contained inside current segment
-        if l.getValue().bot < boxBounds._1 then bbst.put(l.getKey(), l.getValue())
+        if l.value.bot < boxBounds.bot then bbst.put(l.key, l.value)
         // add u, if it is not completely contained inside current segment
-        if u.getValue().top < boxBounds._2 then bbst.put(u.getKey(), u.getValue())
+        if u.value.top > boxBounds.top then bbst.put(u.key, u.value)
 
         // put current segment into bbst
         // TODO: Dependend on dir!
