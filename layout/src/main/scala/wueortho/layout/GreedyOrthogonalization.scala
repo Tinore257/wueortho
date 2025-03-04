@@ -290,13 +290,9 @@ object GreedyOrthogonalization:
         // val interval = k
         // (0 to graph.numberOfVertices).foldLeft(lowerIntervalSegment)(())
         var interval: Seq[(Double, Segment)] = Seq((lowerIntervalSegment.key, lowerIntervalSegment.value));
-        var lastElement                      = lowerIntervalSegment
-        while lastElement.key != upperIntervalSegment.key && lastElement.value.top != Double.PositiveInfinity
-        do
-          lastElement = Entry.apply
-            .tupled(bbst.minAfter(lastElement.key).getOrElse((upperIntervalSegment.key, upperIntervalSegment.value)))
-          val currentEntry = lastElement
-          interval = interval.appended((currentEntry.key, currentEntry.value))
+
+        // get all segments inside the interval
+        interval.appendedAll(bbst.iteratorFrom(lowerIntervalSegment.key).takeWhile((k, _) => k < boxBounds.top))
 
         // calculate edge that is max in the sweeping direction
         val maxRightSegment = interval.maxBy(_._2.xpos)
@@ -325,9 +321,11 @@ object GreedyOrthogonalization:
         interval.foreach(s => bbst.remove(s._1))
 
         // add l, if it is not completely contained inside current segment
-        if l.value.bot < boxBounds.bot then bbst.put(l.key, l.value)
+        if l.value.bot < boxBounds.bot then
+          bbst.put(l.value.bot + boxBounds.bot / 2.0, Segment(l.value.xpos, l.value.bot, boxBounds.bot))
         // add u, if it is not completely contained inside current segment
-        if u.value.top > boxBounds.top then bbst.put(u.key, u.value)
+        if u.value.top > boxBounds.top then // bbst.put(u.key, u.value)
+          bbst.put(u.value.top + boxBounds.top / 2.0, Segment(u.value.xpos, boxBounds.top, u.value.top))
 
         // put current segment into bbst
         // TODO: Dependend on dir!
