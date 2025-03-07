@@ -24,6 +24,11 @@ import wueortho.data.BasicGraph
 import java.util.Map.Entry
 import scala.collection.mutable.TreeMap
 import scala.collection.immutable.Stream.Empty
+import com.google.protobuf.Duration
+import wueortho.util.mutable.LinearIntervalTree.Interval
+import wueortho.util.mutable.LinearIntervalTree
+import scala.compiletime.ops.int
+import wueortho.nudging.EdgeNudging.conf
 
 object GreedyOrthogonalization:
 
@@ -69,12 +74,12 @@ object GreedyOrthogonalization:
 
     if n < 2 then return VertexLayout(pos.finish)
 
-    given Monoid[Set[Int]] with
-      def zero: Set[Int]                                     = Set.empty
-      override def apply(a: Set[Int], b: Set[Int]): Set[Int] = a union b
+    given Monoid[Set[NodeIndex]] with
+      def zero: Set[NodeIndex]                                                 = Set.empty
+      override def apply(a: Set[NodeIndex], b: Set[NodeIndex]): Set[NodeIndex] = a union b
 
-    val verticalSets   = DisjointSets[Int, Set[Int]]
-    val horizontalSets = DisjointSets[Int, Set[Int]]
+    val verticalSets   = DisjointSets[NodeIndex, Set[NodeIndex]]
+    val horizontalSets = DisjointSets[NodeIndex, Set[NodeIndex]]
 
     val assignments: IndexedSeq[mutable.IndexedSeq[(Direction, (Int, Int))]] = IndexedSeq(
       init.nodes.map(_ => Direction.values.map(d => (d, (-1, -1))).sortBy((d, _) => d.ordinal))*,
@@ -160,8 +165,8 @@ object GreedyOrthogonalization:
 
     def isAligned(e: WeightedEdge, dir: Direction) = dir match
       case Direction.East | Direction.West   =>
-        horizontalSets.contains(e.from.toInt) && horizontalSets.contains(e.to.toInt)
-      case Direction.North | Direction.South => verticalSets.contains(e.from.toInt) && verticalSets.contains(e.to.toInt)
+        horizontalSets.contains(e.from) && horizontalSets.contains(e.to)
+      case Direction.North | Direction.South => verticalSets.contains(e.from) && verticalSets.contains(e.to)
 
     // TODO: edge-case class
     case class Candidate(dir: Direction, weight: Double, edge: (Int, Int))
@@ -212,11 +217,11 @@ object GreedyOrthogonalization:
                 case Direction.North | Direction.South => verticalSets
                 case Direction.West | Direction.East   => horizontalSets
               val edge = candidate.edge
-              if !sets.contains(edge._1) then
-                val _ = sets.mkSet(edge._1, Set(edge._1))
-              if !sets.contains(edge._2) then
-                val _ = sets.mkSet(edge._2, Set(edge._2))
-              val _    = sets.union(edge._1, edge._2)
+              if !sets.contains(NodeIndex(edge._1)) then
+                val _ = sets.mkSet(NodeIndex(edge._1), Set(NodeIndex(edge._1)))
+              if !sets.contains(NodeIndex(edge._2)) then
+                val _ = sets.mkSet(NodeIndex(edge._2), Set(NodeIndex(edge._2)))
+              val _    = sets.union(NodeIndex(edge._1), NodeIndex(edge._2))
       end for
       // save assignments for node
       localAssignments.filter(e => e._2 != (-1, -1)).foreach(a => assignments(a._2._1)(a._1.ordinal) = a)
@@ -226,132 +231,122 @@ object GreedyOrthogonalization:
     end for
     // calculate (median) positions for each disjoint set and set nodes position to median
     for vertices      <- verticalSets.values if vertices.size > 0 do
-      val medianSeq = vertices.toSeq.map(v => pos(v).x1).sorted
+      val medianSeq = vertices.toSeq.map(v => pos(v.toInt).x1).sorted
       val median    = medianSeq(Math.floor(vertices.size.toDouble / 2.0).toInt)
-      vertices.foreach(v => pos.update(v, Vec2D(median, pos(v).x2)))
+      vertices.foreach(v => pos.update(v.toInt, Vec2D(median, pos(v.toInt).x2)))
 
     for v <- horizontalSets.values if v.size > 0 do
-      val median = v.toSeq.map(v => pos(v).x2).sorted()(Math.floor(v.size / 2.0).toInt)
-      v.foreach(v => pos.update(v, Vec2D(pos(v).x1, median)))
+      val median = v.toSeq.map(v => pos(v.toInt).x2).sorted()(Math.floor(v.size / 2.0).toInt)
+      v.foreach(v => pos.update(v.toInt, Vec2D(pos(v.toInt).x1, median)))
 
     println(s"vertical Sets: ${verticalSets.values.foldLeft("")((s, e) => s.concat(e.toString()).toString())}")
     println(s"horizontal Sets: ${horizontalSets.values.foldLeft("")((s, e) => s.concat(e.toString()).toString())}")
 
-    def sweeplineVBSeparator(
+    def isVertical(dir: Direction) = dir match
+      case Direction.East | Direction.West => false
+      case _                               => true
+
+    def sweeplineDetectConflicts(
         dir: Direction,
-        graph: DiGraph,
+        conflictGraph: DiGraph,
         pos: mutable.IndexedSeq[Vec2D],
         boxes: VertexBoxes,
     ): mutable.IndexedSeq[Vec2D] =
 
-      // TODO: xpos is not a good name. It is the position in the direction of sweeping
-      case class Segment(xpos: Double, bot: Double, top: Double) derives CanEqual
+      val sets = dir match
+        case Direction.East | Direction.West   => verticalSets
+        case Direction.South | Direction.North => horizontalSets
+
+      // sweepPos is the position in the direction of sweeping
+      case class Segment(sweepPos: Double, low: Double, high: Double, ref: Int) derives CanEqual
 
       // sweepline algorithm to move nodes to remove overlapping vertex-boxes
 
-      // init bbst with dummy segment
-      var bbst = TreeMap[Double, Segment]()
-      bbst.put(0.0, Segment(Double.NegativeInfinity, Double.NegativeInfinity, Double.PositiveInfinity))
+      // init bbst
+      var sweeplineStatus = LinearIntervalTree()
+      // bbst.put(0.0, Segment(Double.NegativeInfinity, Double.NegativeInfinity, Double.PositiveInfinity))
+
+      // get all aligned edges (parallel to sweeping line)
+      val alignedEdges  = graph.edges
+        .filter(e => verticalSets.sameSet(e.from, e.to) || horizontalSets.sameSet(e.from, e.to))
+      val isolatedNodes = graph.vertices.indices
+        .filter(v => !horizontalSets.contains(NodeIndex(v)) && !verticalSets.contains(NodeIndex(v)))
 
       // init event queue
-      val eventQueue = graph.vertices.zipWithIndex.map((_, i) => (pos(i), i)).sortBy((p, i) =>
-        (
-          dir match
-            case Direction.East  => p.x1
-            case Direction.West  => -p.x1
-            case Direction.South => p.x2
-            case Direction.North => -p.x2
-          ,
-          -graph.vertices(i).neighbors.size,
-        ),
-      ).map((_, i) => i)
+      val segmentsFromAlignedEdges = isVertical(dir) match
+        case false =>
+          alignedEdges.map(e =>
+            Segment(
+              pos(e.from.toInt).x1 min pos(e.to.toInt).x1,
+              pos(e.from.toInt).x2 min pos(e.to.toInt).x2,
+              pos(e.from.toInt).x2 max pos(e.to.toInt).x2,
+              if pos(e.from.toInt).x1 < pos(e.to.toInt).x1 then e.from.toInt else e.to.toInt,
+            ),
+          )
+        case true  =>
+          alignedEdges.map(e =>
+            Segment(
+              pos(e.from.toInt).x2 min pos(e.to.toInt).x2,
+              pos(e.from.toInt).x1 min pos(e.to.toInt).x1,
+              pos(e.from.toInt).x1 max pos(e.to.toInt).x1,
+              if pos(e.from.toInt).x2 < pos(e.to.toInt).x2 then e.from.toInt else e.to.toInt,
+            ),
+          )
 
-      for currentBoxId <- eventQueue.iterator do
+      val segmentsFromIsolatedVertices = isVertical(dir) match
+        case false => isolatedNodes.map(v => Segment(pos(v).x1, pos(v).x2, pos(v).x2, v))
+        case true  => isolatedNodes.map(v => Segment(pos(v).x2, pos(v).x1, pos(v).x1, v))
+
+      val eventQueue = segmentsFromIsolatedVertices.appendedAll(segmentsFromAlignedEdges).sortBy(_.sweepPos)
+        .map(s => Interval(s.low, s.high, s.ref))
+
+      for currentInterval <- eventQueue.iterator do
         // finde interval in BBST
-        val boxBounds = Segment(
-          pos(currentBoxId).x2,
-          pos(currentBoxId).x2 - boxes(currentBoxId).span.x2 / 2.0,
-          pos(currentBoxId).x2 + boxes(currentBoxId).span.x2 / 2.0,
-        )
+        val interval = sweeplineStatus.overlaps(currentInterval.low, currentInterval.high)
 
-        case class Entry(key: Double, value: Segment)
-        // beide Segmente, die kleiner/größer als das aktuelle Intervall sind, werden gefunden
-        var lowerIntervalSegment =
-          bbst.get(boxBounds.bot) match
-            case Some(s) => Entry(boxBounds.bot, bbst.get(boxBounds.bot).get)
-            case None    =>
-              Entry.apply.tupled(bbst.maxBefore(boxBounds.bot).getOrElse(bbst.minAfter(boxBounds.bot).get))
-        var upperIntervalSegment =
-          bbst.get(boxBounds.top) match
-            case Some(s) => Entry(boxBounds.top, bbst.get(boxBounds.top).get)
-            case None    =>
-              Entry.apply.tupled(bbst.minAfter(boxBounds.top).getOrElse(bbst.maxBefore(boxBounds.top).get))
+        // all intersecting intervals that are not in a disjoint set with the current interval
+        val problemVertices = interval.filter(i => !sets.sameSet(NodeIndex(i), NodeIndex(currentInterval.key)))
 
-        // val interval = k
-        // (0 to graph.numberOfVertices).foldLeft(lowerIntervalSegment)(())
-        var interval: Seq[(Double, Segment)] = Seq((lowerIntervalSegment.key, lowerIntervalSegment.value));
+        def hasUndirectedEdge(u: Int, v: Int, graph: DiGraph): Boolean =
+          graph.vertices(u).neighbors.contains(v) || graph.vertices(v).neighbors.contains(v)
 
-        // get all segments inside the interval
-        interval.appendedAll(bbst.iteratorFrom(lowerIntervalSegment.key).takeWhile((k, _) => k < boxBounds.top))
+        // filter all vertices that already share a edge in the confictgrah
+        val problemVerticesWithoutEdge = problemVertices
+          .filter(v => hasUndirectedEdge(v, currentInterval.key, conflictGraph))
 
-        // calculate edge that is max in the sweeping direction
-        val maxRightSegment = interval.maxBy(_._2.xpos)
-
-        val newPosition = maxRightSegment._2.xpos max (dir match
-          case Direction.East | Direction.West   => pos(currentBoxId).x1
-          case Direction.North | Direction.South => pos(currentBoxId).x2
-        )
-
-        // get l interval (lowest segment insersecting current segment)
-        val l =
-          if lowerIntervalSegment.value.top > boxBounds.bot then lowerIntervalSegment
-          else
-            Entry.apply.tupled(
-              bbst.minAfter(lowerIntervalSegment.key).getOrElse(sys.error("Segment was expected but not found!")),
-            )
-        // get u interval (highest segment insersecting current segment)
-        val u =
-          if upperIntervalSegment.value.bot < boxBounds.top then upperIntervalSegment
-          else
-            Entry.apply.tupled(
-              bbst.maxBefore(upperIntervalSegment.key).getOrElse(sys.error("Segment was expected but not found!")),
-            )
-
-        // remove all segments from I
-        interval.foreach(s => bbst.remove(s._1))
-
-        // add l, if it is not completely contained inside current segment
-        if l.value.bot < boxBounds.bot then
-          bbst.put(l.value.bot + boxBounds.bot / 2.0, Segment(l.value.xpos, l.value.bot, boxBounds.bot))
-        // add u, if it is not completely contained inside current segment
-        if u.value.top > boxBounds.top then // bbst.put(u.key, u.value)
-          bbst.put(u.value.top + boxBounds.top / 2.0, Segment(u.value.xpos, boxBounds.top, u.value.top))
-
-        // put current segment into bbst
-        // TODO: Dependend on dir!
-        val height = boxes(currentBoxId).span.x2
-        val b      = Segment(newPosition, newPosition - height, newPosition + height)
-        // TODO: Dependend on dir!
-        bbst.put(pos(currentBoxId)._2, b)
-
-        // set new position
-        pos(currentBoxId) = dir match
-          case Direction.North | Direction.South => Vec2D(newPosition, pos(currentBoxId).x2)
-          case Direction.East | Direction.West   => Vec2D(pos(currentBoxId).x1, newPosition)
+        // add edge in conflict graph if current interval and intersecting interval are not
+        // contained in the same disjoint set
+        // problemVerticesWithoutEdge.foreach(v => conflictGraph.vertices(v).neighbors.)
+        //
+        //
+        //
+        //
+        //
+        //
+        //
+        //
+        //
+        //
+        //
+        //
+        //
+        //
+        //
+        //
       end for
 
       return pos
-    end sweeplineVBSeparator
+    end sweeplineDetectConflicts
 
-    def compactGraph(graph: WeightedDiGraph, dir: Direction, disjointSets: DisjointSets[Int, Set[Int]]) =
+    def compactGraph(graph: WeightedDiGraph, dir: Direction, disjointSets: DisjointSets[NodeIndex, Set[NodeIndex]]) =
 
       // TODO: Change to Either[NodeIndex, Int]
-      def createMappingContracted2Normal(sets: DisjointSets[Int, Set[Int]]): IndexedSeq[Either[Int, Int]] =
+      def createMappingContracted2Normal(sets: DisjointSets[NodeIndex, Set[NodeIndex]]): IndexedSeq[Either[Int, Int]] =
         // TODO: Construct graph with merged vertical nodes (and removed multi-edges)
 
         // contains only the mapping for nodes that are contained in a set
         var nodeId2SetMap: mutable.IndexedSeq[Int] = mutable.IndexedSeq(graph.vertices.map(_ => -1)*)
-        sets.values.zipWithIndex.foreach((vertexSet, setId) => vertexSet.foreach(v => nodeId2SetMap(v) = setId))
+        sets.values.zipWithIndex.foreach((vertexSet, setId) => vertexSet.foreach(v => nodeId2SetMap(v.toInt) = setId))
 
         val numberContractedVertices = nodeId2SetMap.filter(_ == -1).size + sets.values.size
 
@@ -365,13 +360,13 @@ object GreedyOrthogonalization:
 
       def createMappingNormal2Contracted(
           contracted2Normal: IndexedSeq[Either[Int, Int]],
-          sets: DisjointSets[Int, Set[Int]],
+          sets: DisjointSets[NodeIndex, Set[NodeIndex]],
       ): IndexedSeq[Int] =
         // TODO: Check if this will always work!
         val normal2ContractedUnchecked = contracted2Normal.zipWithIndex.flatMap((e, contrId) =>
           e match
             case Left(vertexId) => Seq((vertexId, contrId))
-            case Right(setId)   => sets.values(setId).map(vertexId => (vertexId, contrId)),
+            case Right(setId)   => sets.values(setId).map(vertexId => (vertexId.toInt, contrId)),
         ).sortBy((vertexId, _) => vertexId)
 
         val check = normal2ContractedUnchecked.foldLeft(Option(-1))((acc, x) =>
@@ -437,14 +432,14 @@ object GreedyOrthogonalization:
           mappingContracted2Normal.map(contracted =>
             contracted match
               case Left(i)  => pos(i)
-              case Right(i) => pos(disjointSets.values(i).last), // is already median position
+              case Right(i) => pos(disjointSets.values(i).last.toInt), // is already median position
           )*,
         )
 
         val contractedBoxes = mappingContracted2Normal.map(contracted =>
           contracted match
             case Left(i)  => boxes.asRects(i)
-            case Right(i) => disjointSets.values(i).map(v => boxes.asRects(v)).toSeq.maxBy(b => b.span.len),
+            case Right(i) => disjointSets.values(i).map(v => boxes.asRects(v.toInt)).toSeq.maxBy(b => b.span.len),
         )
 
         for i <- topSort do
@@ -478,14 +473,11 @@ object GreedyOrthogonalization:
             // update box positions
             contractedPos(i.toInt) = newPos
         end for
-
-        contractedPos = sweeplineVBSeparator(dir, contracedDiGraph, contractedPos, VertexBoxes(contractedBoxes))
-
         // apply contracted positions to normal positions
         contractedPos.zipWithIndex.flatMap((p, i) =>
           mappingContracted2Normal(i) match
             case Left(v)    => Seq((v, p))
-            case Right(set) => disjointSets.values(set).map(v => (v, p)),
+            case Right(set) => disjointSets.values(set).map(v => (v.toInt, p)),
         ).foreach((v, p) =>
           dir match
             case Direction.West | Direction.East   => pos.update(v, Vec2D(p.x1, pos(v).x2))
