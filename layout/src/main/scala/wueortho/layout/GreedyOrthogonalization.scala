@@ -291,8 +291,8 @@ object GreedyOrthogonalization:
       // PROBLEM: HIER LEIGEN DIE NODEINDEXE NOCH IN GLOBALER FORM VOR
 
       val eventQueue = segmentsFromIsolatedVertices.appendedAll(segmentsFromAlignedEdges).sortBy(dir match
-        case Direction.East | Direction.South => _.sweepPos
-        case Direction.West | Direction.North => -_.sweepPos,
+        case Direction.East | Direction.North => _.sweepPos
+        case Direction.West | Direction.South => -_.sweepPos,
       ).map(s => Interval(s.low, s.high, s.ref))
 
       for currentInterval <- eventQueue do
@@ -399,9 +399,9 @@ object GreedyOrthogonalization:
 
     end compactGraph
 
-    // compactGraph(undirectedGraph, Direction.East, verticalSets)
+    compactGraph(undirectedGraph, Direction.East, verticalSets)
     compactGraph(undirectedGraph, Direction.West, verticalSets)
-    // compactGraph(undirectedGraph, Direction.North, horizontalSets)
+    compactGraph(undirectedGraph, Direction.North, horizontalSets)
     compactGraph(undirectedGraph, Direction.South, horizontalSets)
 
     // pos.a.zipWithIndex.foreach((p, i) => println(s"Vertex: ${i} has position  ${p.toString()}"))
