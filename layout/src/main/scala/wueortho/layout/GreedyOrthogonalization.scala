@@ -17,6 +17,8 @@ import wueortho.data.VertexBoxes
 import wueortho.data.WeightedDiGraph
 import wueortho.util.mutable.LinearIntervalTree.Interval
 import wueortho.util.mutable.LinearIntervalTree
+import scala.collection.mutable.ArrayBuffer
+import scala.compiletime.ops.double
 
 object GreedyOrthogonalization:
 
@@ -213,6 +215,8 @@ object GreedyOrthogonalization:
         .foreach(a => assignments(a._2._2)(a._1.reverse.ordinal) = (a._1, (a._2._2, a._2._1)))
     end for
     // calculate (median) positions for each disjoint set and set nodes position to median
+
+    /*
     for vertices      <- verticalSets.values if vertices.size > 0 do
       val medianSeq = vertices.toSeq.map(v => pos(v.toInt).x1).sorted
       val median    = medianSeq(Math.floor(vertices.size.toDouble / 2.0).toInt)
@@ -220,7 +224,7 @@ object GreedyOrthogonalization:
 
     for v <- horizontalSets.values if v.size > 0 do
       val median = v.toSeq.map(v => pos(v.toInt).x2).sorted()(Math.floor(v.size / 2.0).toInt)
-      v.foreach(v => pos.update(v.toInt, Vec2D(pos(v.toInt).x1, median)))
+      v.foreach(v => pos.update(v.toInt, Vec2D(pos(v.toInt).x1, median))) */
 
     println(s"vertical Sets: ${verticalSets.values.foldLeft("")((s, e) => s.concat(e.toString()).toString())}")
     println(s"horizontal Sets: ${horizontalSets.values.foldLeft("")((s, e) => s.concat(e.toString()).toString())}")
@@ -234,6 +238,121 @@ object GreedyOrthogonalization:
       case Direction.West  => pos.x1 > otherPos.x1
       case Direction.North => pos.x2 < otherPos.x2
       case Direction.South => pos.x2 > otherPos.x2
+
+    /** gets all orthogonal (to direction) disjoint sets that are inside or part of a face consistinig of only aligned
+      * edges
+      */
+    def getAllSetsPerFace(graph: WeightedDiGraph, dir: Direction): Seq[Set[NodeIndex]] =
+
+      def getSlope(a: NodeIndex, b: NodeIndex, dir: Direction) = dir match
+        case Direction.West  => (pos(b.toInt).x2 - pos(a.toInt).x2) / (pos(b.toInt).x1 - pos(a.toInt).x1)
+        case Direction.East  => (pos(b.toInt).x2 - pos(a.toInt).x2) / (pos(a.toInt).x1 - pos(b.toInt).x1)
+        case Direction.North => (pos(a.toInt).x1 - pos(b.toInt).x1) / (pos(b.toInt).x2 - pos(a.toInt).x2)
+        case Direction.South => (pos(a.toInt).x1 - pos(b.toInt).x1) / (pos(b.toInt).x2 - pos(a.toInt).x2)
+
+      def getCurrentSegmentPosition(from: NodeIndex, to: NodeIndex, x: Double, dir: Direction) = dir match
+        case Direction.West | Direction.East   =>
+          if (pos(from.toInt).x1 == pos(to.toInt).x1) then pos(from.toInt).x1 else getSlope(from, to, dir)
+        case Direction.South | Direction.North =>
+          if (pos(from.toInt).x2 == pos(to.toInt).x2) then pos(from.toInt).x2 else getSlope(from, to, dir)
+
+      var faces = ArrayBuffer[Set[NodeIndex]]().empty
+      faces.addOne(Set.empty) // outer face
+
+      case class Segment(from: NodeIndex, to: NodeIndex, var upperFace: Int, var lowerFace: Int)
+
+      val verticesWithPos = graph.vertices.zipWithIndex.map((_, i) => (i, pos(i)))
+
+      val eventQueue = verticesWithPos.sortBy((_, pos) =>
+        dir match
+          case Direction.East | Direction.West   => pos.x1
+          case Direction.North | Direction.South => pos.x2,
+      )
+
+      var sweeplineStatus = ArrayBuffer[Segment]().empty
+
+      for p <- eventQueue do
+
+        val sweepCoordiante = dir match
+          case Direction.West | Direction.East   => pos(p._1).x1
+          case Direction.North | Direction.South => pos(p._1).x2
+
+        // close complete faces
+
+        // TODO: Kann so nicht funktionieren:
+        val neighborsInStatus = sweeplineStatus.drop(p._1 - 2).take(2)
+
+        val neightborsWithReprV = neighborsInStatus.filter(e => e.to == NodeIndex(p._1))
+
+        // remove elements from sweepline status
+        neightborsWithReprV.foreach(n => sweeplineStatus -= n)
+
+        // add new segments into sweepline-status
+
+        // all vertices, that share any disjoint set with v
+        val verticesInSameSet = verticalSets.getOrElseThrow(NodeIndex(p._1))
+          .union(horizontalSets.getOrElseThrow(NodeIndex(p._1)))
+
+        val successors = verticesInSameSet.filter(v =>
+          graph.vertices(p._1).neighbors.map(link => link.toNode).contains(v),
+          // ||graph.vertices(v.toInt).neighbors.map(link => link.toNode).contains(NodeIndex(p._1)),
+        ).filter(v =>
+          dir match
+            case Direction.West  => pos(v.toInt).x1 >= pos(p._1).x1
+            case Direction.East  => pos(v.toInt).x1 <= pos(p._1).x1
+            case Direction.North => pos(v.toInt).x2 >= pos(p._1).x2
+            case Direction.South => pos(v.toInt).x2 <= pos(p._1).x2,
+        )
+
+        val successorSegements = successors.map(s => Segment(NodeIndex(p._1), s, -1, -1))
+
+        val newSuccessorSegments = successorSegements
+          .filter(s => !sweeplineStatus.map(seg => (seg.from, seg.to)).contains((s.from, s.to)))
+
+        sweeplineStatus.addAll(newSuccessorSegments)
+          .sortInPlaceBy(segment => getCurrentSegmentPosition(segment.from, segment.to, sweepCoordiante, dir))
+
+        // val newFacesBetweenSegments = sweeplineStatus.sliding(2).map(a => a(0).lowerFace max a(1).upperFace)
+
+        // add outer segments to faces
+        for i <- 0 until sweeplineStatus.size - 1 do
+
+          sweeplineStatus(i).lowerFace = sweeplineStatus(i).lowerFace max sweeplineStatus(i + 1).upperFace
+          sweeplineStatus(i + 1).upperFace = sweeplineStatus(i).lowerFace max sweeplineStatus(i + 1).upperFace
+
+        end for
+        // create new faces between disjoint sets
+        for i <- 0 until sweeplineStatus.size - 1 do
+          val currentSegments = (sweeplineStatus(i), sweeplineStatus(i))
+          if (currentSegments._1.lowerFace == -1 && currentSegments._2.upperFace == -1) then
+            val newSetIndex = faces.size
+            sweeplineStatus(i).lowerFace = newSetIndex
+            sweeplineStatus(i + 1).upperFace = newSetIndex
+            faces.addOne(
+              Set(
+                sweeplineStatus(i).from,
+                sweeplineStatus(i).to,
+                sweeplineStatus(i + 1).from,
+                sweeplineStatus(i + 1).to,
+              ),
+            )
+          end if
+
+        end for
+        // add references to outer face
+        sweeplineStatus.take(1).foreach(e => {
+          e.upperFace = 0
+          faces(0).++(e.from :: e.to :: Nil)
+        })
+        sweeplineStatus.reverse.take(1).foreach(e => {
+          e.lowerFace = 0
+          faces(0).++(e.from :: e.to :: Nil)
+        })
+
+      end for
+
+      return faces.toIndexedSeq
+    end getAllSetsPerFace
 
     /** Returns additional edges between nodes that need to be added to the according nodes in the confict-graph
       */
@@ -326,6 +445,8 @@ object GreedyOrthogonalization:
       def getUnContracted = (repr: NodeIndex) => {
         disjointSets.getOrElseThrow(repr)
       }
+      // TODO: TODO: TODO: TODO: TODO: TODO: TODO: TODO:
+      val e               = getAllSetsPerFace(graph, dir)
 
       // graph with vertial aligned vertices contracted
       val initialContracedDiGraph = Graph.fromEdges(
@@ -365,15 +486,45 @@ object GreedyOrthogonalization:
 
         if conflictNeighbors.size > 0 then
 
+          val currentPosAndBB = getUnContracted(i).map(v => (v, pos(v.toInt), boxes(v.toInt)))
+
+          val currentInterval = dir match
+            case Direction.West | Direction.East   =>
+              Interval(
+                currentPosAndBB.map((_, pos, box) => (pos.x2 - box.span.x2)).min,
+                currentPosAndBB.map((_, pos, box) => (pos.x2 + box.span.x2)).max,
+                0,
+              )
+            case Direction.North | Direction.South =>
+              Interval(
+                currentPosAndBB.map((_, pos, box) => (pos.x1 - box.span.x1)).min,
+                currentPosAndBB.map((_, pos, box) => (pos.x1 + box.span.x1)).max,
+                0,
+              )
+
           val neighbors = conflictNeighbors.map(disjointSets.getOrElseThrow(_))
 
           val neighborsWithPosBox = neighbors.flatMap(l => l.map(n => (n, pos(n.toInt), boxes(n.toInt))))
 
+          val filteredNeighborsWithBoxPos = neighborsWithPosBox.filter((v, _, _) =>
+            (dir match
+              case Direction.East | Direction.West   =>
+                currentInterval.overlaps(
+                  getUnContracted(v).map(v => pos(v.toInt).x2 - boxes(v.toInt).span.x2).min,
+                  getUnContracted(v).map(v => pos(v.toInt).x2 + boxes(v.toInt).span.x2).max,
+                )
+              case Direction.South | Direction.North =>
+                currentInterval.overlaps(
+                  getUnContracted(v).map(v => pos(v.toInt).x1 - boxes(v.toInt).span.x1).min,
+                  getUnContracted(v).map(v => pos(v.toInt).x1 + boxes(v.toInt).span.x1).max,
+                )),
+          )
+
           val neighborsBoundary = (dir match
-            case Direction.West  => neighborsWithPosBox.sortBy((_, pos, box) => -pos.x1 - box.span.x1)
-            case Direction.East  => neighborsWithPosBox.sortBy((_, pos, box) => pos.x1 + box.span.x1)
-            case Direction.North => neighborsWithPosBox.sortBy((_, pos, box) => pos.x2 + box.span.x2)
-            case Direction.South => neighborsWithPosBox.sortBy((_, pos, box) => -pos.x2 - box.span.x2)
+            case Direction.West  => filteredNeighborsWithBoxPos.sortBy((_, pos, box) => -pos.x1 - box.span.x1)
+            case Direction.East  => filteredNeighborsWithBoxPos.sortBy((_, pos, box) => pos.x1 + box.span.x1)
+            case Direction.North => filteredNeighborsWithBoxPos.sortBy((_, pos, box) => pos.x2 + box.span.x2)
+            case Direction.South => filteredNeighborsWithBoxPos.sortBy((_, pos, box) => -pos.x2 - box.span.x2)
           ).reverse.last
 
           // bounding box to add to neightbors boundary to get final position of vertices
@@ -399,10 +550,10 @@ object GreedyOrthogonalization:
 
     end compactGraph
 
-    compactGraph(undirectedGraph, Direction.East, verticalSets)
-    compactGraph(undirectedGraph, Direction.West, verticalSets)
     compactGraph(undirectedGraph, Direction.North, horizontalSets)
-    compactGraph(undirectedGraph, Direction.South, horizontalSets)
+    // compactGraph(undirectedGraph, Direction.South, horizontalSets)
+    // compactGraph(undirectedGraph, Direction.East, verticalSets)
+    compactGraph(undirectedGraph, Direction.West, verticalSets)
 
     // pos.a.zipWithIndex.foreach((p, i) => println(s"Vertex: ${i} has position  ${p.toString()}"))
 
