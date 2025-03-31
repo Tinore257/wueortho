@@ -19,6 +19,8 @@ import wueortho.util.mutable.LinearIntervalTree.Interval
 import wueortho.util.mutable.LinearIntervalTree
 import scala.collection.mutable.ArrayBuffer
 import scala.compiletime.ops.double
+import wueortho.routing.OrthogonalVisibilityGraph.neighbor
+import scala.collection.mutable.Buffer
 
 object GreedyOrthogonalization:
 
@@ -102,65 +104,50 @@ object GreedyOrthogonalization:
       val semiAxisAngle = directionToAngle(dir)
       Math.abs(angle - semiAxisAngle) min Math.abs(angle - Math.PI * 2 - semiAxisAngle)
 
-    def intersect(e1: WeightedEdge, e2: WeightedEdge): Boolean =
+    def intersectRaw(a1: Vec2D, a2: Vec2D, b1: Vec2D, b2: Vec2D): Boolean =
 
-      // test for shared endpoint
-      if pos(e1.from.toInt) != pos(e1.to.toInt) && pos(e2.from.toInt) != pos(e2.to.toInt) then
-        if (e1.from :: e1.to :: e2.from :: e2.to :: Nil).map(id => pos(id.toInt)).permutations
-            .map(_.take(2).reduce(_ - _).len == 0).reduce(_ || _)
-        then return false
-
-      def orientationTest(e: WeightedEdge, node: NodeIndex): Double =
-        val p = pos(e.from.toInt)
-        val q = pos(e.to.toInt)
-        val r = pos(node.toInt)
-        val v = (q.x2 - p.x2) * (r.x1 - q.x1) -
-          (q.x1 - p.x1) * (r.x2 - q.x2)
+      def orientationTest(e1: Vec2D, e2: Vec2D, node: Vec2D): Double =
+        val v = (e2.x2 - e1.x2) * (node.x1 - e2.x1) -
+          (e2.x1 - e1.x1) * (node.x2 - e2.x2)
         if Math.abs(v) <= 0.00001 then v else v.sign
 
-      def onSegment(p1: NodeIndex, p2: NodeIndex, node: NodeIndex) =
-        val p = pos(p1.toInt)
-        val q = pos(p2.toInt)
-        val r = pos(node.toInt)
-        q.x1 <= (p.x1 max r.x1) && q.x1 >= (p.x1 min r.x1) &&
-        q.x2 <= (p.x2 max r.x2) && q.x2 >= (p.x2 min r.x2)
+      def onSegment(p1: Vec2D, p2: Vec2D, node: Vec2D) =
+        p2.x1 <= (p1.x1 max node.x1) && p2.x1 >= (p1.x1 min node.x1) &&
+          p2.x2 <= (p1.x2 max node.x2) && p2.x2 >= (p1.x2 min node.x2)
 
-      val o1 = orientationTest(e1, e2.from)
-      val o2 = orientationTest(e1, e2.to)
-      val o3 = orientationTest(e2, e1.from)
-      val o4 = orientationTest(e2, e1.to)
+      val o1 = orientationTest(a1, a2, b1)
+      val o2 = orientationTest(a1, a2, b2)
+      val o3 = orientationTest(b1, b2, a1)
+      val o4 = orientationTest(b1, b2, a2)
 
       // general case
-      if (o1 != o2 && o3 != o4) then
-        println(s"Edege (${e1.from},${e1.to}) intersects (${e2.from}, ${e2.to}) with positions (${pos(e1.from.toInt)
-            .toString}, ${pos(e1.to.toInt).toString}) and (${pos(e2.from.toInt).toString}, ${pos(e2.to.toInt).toString})")
-        return true
+      if (o1 != o2 && o3 != o4) then return true
 
       return false
       // edge-cases with colinearity
-      if (o1 == 0 && onSegment(e1.from, e2.from, e1.to)) then
-        println(s"Edege (${e1.from},${e1.to}) intersects (${e2.from}, ${e2.to}) ")
-        return true
-      if (o2 == 0 && onSegment(e1.from, e2.to, e1.to)) then
-        println(s"Edege (${e1.from},${e1.to}) intersects (${e2.from}, ${e2.to}) ")
-        return true
-      if (o3 == 0 && onSegment(e2.from, e1.from, e2.to)) then
-        println(s"Edege (${e1.from},${e1.to}) intersects (${e2.from}, ${e2.to}) ")
-        return true
-      if (o4 == 0 && onSegment(e2.from, e1.to, e2.to)) then
-        println(s"Edege (${e1.from},${e1.to}) intersects (${e2.from}, ${e2.to}) ")
-        return true
+      if (o1 == 0 && onSegment(a1, b1, a2)) then return true
+      if (o2 == 0 && onSegment(a1, b2, a2)) then return true
+      if (o3 == 0 && onSegment(b1, a1, b2)) then return true
+      if (o4 == 0 && onSegment(b1, a2, b2)) then return true
       false
+    end intersectRaw
+
+    def intersect(e1: WeightedEdge, e2: WeightedEdge): Boolean =
+      // test for shared endpoint
+      if pos(e1.from.toInt) != pos(e1.to.toInt) && pos(e1.to.toInt) != pos(e2.to.toInt) then
+        if (pos(e1.from.toInt) :: pos(e1.to.toInt) :: pos(e2.from.toInt) :: pos(e2.to.toInt) :: Nil).permutations
+            .map(_.take(2).reduce(_ - _).len == 0).reduce(_ || _)
+        then return false
+      intersectRaw(pos(e1.from.toInt), pos(e1.to.toInt), pos(e2.from.toInt), pos(e2.to.toInt))
     end intersect
 
     val verticesOrderedByDegree = undirectedGraph.vertices.zipWithIndex.map((v, i) => (i, v.neighbors.length))
       .sortBy((_, l) => l).reverse
 
-    def isAligned(e: WeightedEdge, dir: Direction) = dir match
-      case Direction.East | Direction.West   =>
-        // horizontalSets.contains(e.from) && horizontalSets.contains(e.to)
+    def isAligned(e: WeightedEdge, dir: Direction) = dir.isHorizontal match
+      case true  =>
         (horizontalSets.contains(e.from) && horizontalSets.getOrElseThrow(e.from).contains(e.to))
-      case Direction.North | Direction.South => // verticalSets.contains(e.from) && verticalSets.contains(e.to)
+      case false => // verticalSets.contains(e.from) && verticalSets.contains(e.to)
         (verticalSets.contains(e.from) && verticalSets.getOrElseThrow(e.from).contains(e.to))
 
     // TODO: edge-case class
@@ -202,9 +189,9 @@ object GreedyOrthogonalization:
               localAssignments(candidate.dir.ordinal) = (candidate.dir, candidate.edge)
 
               // add nodes to disjoint sets
-              val sets = candidate.dir match
-                case Direction.North | Direction.South => verticalSets
-                case Direction.West | Direction.East   => horizontalSets
+              val sets = candidate.dir.isVertical match
+                case true  => verticalSets
+                case false => horizontalSets
               val edge = candidate.edge
               val _    = sets.union(NodeIndex(edge._1), NodeIndex(edge._2))
       end for
@@ -229,130 +216,13 @@ object GreedyOrthogonalization:
     println(s"vertical Sets: ${verticalSets.values.foldLeft("")((s, e) => s.concat(e.toString()).toString())}")
     println(s"horizontal Sets: ${horizontalSets.values.foldLeft("")((s, e) => s.concat(e.toString()).toString())}")
 
-    def isVertical(dir: Direction) = dir match
-      case Direction.East | Direction.West => false
-      case _                               => true
+    def isVertical(dir: Direction) = dir.isVertical
 
     def isEarlierInSweepDir(pos: Vec2D, otherPos: Vec2D, dir: Direction): Boolean = dir match
       case Direction.East  => pos.x1 < otherPos.x1
       case Direction.West  => pos.x1 > otherPos.x1
       case Direction.North => pos.x2 < otherPos.x2
       case Direction.South => pos.x2 > otherPos.x2
-
-    /** gets all orthogonal (to direction) disjoint sets that are inside or part of a face consistinig of only aligned
-      * edges
-      */
-    def getAllSetsPerFace(graph: WeightedDiGraph, dir: Direction): Seq[Set[NodeIndex]] =
-
-      def getSlope(a: NodeIndex, b: NodeIndex, dir: Direction) = dir match
-        case Direction.West  => (pos(b.toInt).x2 - pos(a.toInt).x2) / (pos(b.toInt).x1 - pos(a.toInt).x1)
-        case Direction.East  => (pos(b.toInt).x2 - pos(a.toInt).x2) / (pos(a.toInt).x1 - pos(b.toInt).x1)
-        case Direction.North => (pos(a.toInt).x1 - pos(b.toInt).x1) / (pos(b.toInt).x2 - pos(a.toInt).x2)
-        case Direction.South => (pos(a.toInt).x1 - pos(b.toInt).x1) / (pos(b.toInt).x2 - pos(a.toInt).x2)
-
-      def getCurrentSegmentPosition(from: NodeIndex, to: NodeIndex, x: Double, dir: Direction) = dir match
-        case Direction.West | Direction.East   =>
-          if (pos(from.toInt).x1 == pos(to.toInt).x1) then pos(from.toInt).x1 else getSlope(from, to, dir)
-        case Direction.South | Direction.North =>
-          if (pos(from.toInt).x2 == pos(to.toInt).x2) then pos(from.toInt).x2 else getSlope(from, to, dir)
-
-      var faces = ArrayBuffer[Set[NodeIndex]]().empty
-      faces.addOne(Set.empty) // outer face
-
-      case class Segment(from: NodeIndex, to: NodeIndex, var upperFace: Int, var lowerFace: Int)
-
-      val verticesWithPos = graph.vertices.zipWithIndex.map((_, i) => (i, pos(i)))
-
-      val eventQueue = verticesWithPos.sortBy((_, pos) =>
-        dir match
-          case Direction.East | Direction.West   => pos.x1
-          case Direction.North | Direction.South => pos.x2,
-      )
-
-      var sweeplineStatus = ArrayBuffer[Segment]().empty
-
-      for p <- eventQueue do
-
-        val sweepCoordiante = dir match
-          case Direction.West | Direction.East   => pos(p._1).x1
-          case Direction.North | Direction.South => pos(p._1).x2
-
-        // close complete faces
-
-        // TODO: Kann so nicht funktionieren:
-        val neighborsInStatus = sweeplineStatus.drop(p._1 - 2).take(2)
-
-        val neightborsWithReprV = neighborsInStatus.filter(e => e.to == NodeIndex(p._1))
-
-        // remove elements from sweepline status
-        neightborsWithReprV.foreach(n => sweeplineStatus -= n)
-
-        // add new segments into sweepline-status
-
-        // all vertices, that share any disjoint set with v
-        val verticesInSameSet = verticalSets.getOrElseThrow(NodeIndex(p._1))
-          .union(horizontalSets.getOrElseThrow(NodeIndex(p._1)))
-
-        val successors = verticesInSameSet.filter(v =>
-          graph.vertices(p._1).neighbors.map(link => link.toNode).contains(v),
-          // ||graph.vertices(v.toInt).neighbors.map(link => link.toNode).contains(NodeIndex(p._1)),
-        ).filter(v =>
-          dir match
-            case Direction.West  => pos(v.toInt).x1 >= pos(p._1).x1
-            case Direction.East  => pos(v.toInt).x1 <= pos(p._1).x1
-            case Direction.North => pos(v.toInt).x2 >= pos(p._1).x2
-            case Direction.South => pos(v.toInt).x2 <= pos(p._1).x2,
-        )
-
-        val successorSegements = successors.map(s => Segment(NodeIndex(p._1), s, -1, -1))
-
-        val newSuccessorSegments = successorSegements
-          .filter(s => !sweeplineStatus.map(seg => (seg.from, seg.to)).contains((s.from, s.to)))
-
-        sweeplineStatus.addAll(newSuccessorSegments)
-          .sortInPlaceBy(segment => getCurrentSegmentPosition(segment.from, segment.to, sweepCoordiante, dir))
-
-        // val newFacesBetweenSegments = sweeplineStatus.sliding(2).map(a => a(0).lowerFace max a(1).upperFace)
-
-        // add outer segments to faces
-        for i <- 0 until sweeplineStatus.size - 1 do
-
-          sweeplineStatus(i).lowerFace = sweeplineStatus(i).lowerFace max sweeplineStatus(i + 1).upperFace
-          sweeplineStatus(i + 1).upperFace = sweeplineStatus(i).lowerFace max sweeplineStatus(i + 1).upperFace
-
-        end for
-        // create new faces between disjoint sets
-        for i <- 0 until sweeplineStatus.size - 1 do
-          val currentSegments = (sweeplineStatus(i), sweeplineStatus(i))
-          if (currentSegments._1.lowerFace == -1 && currentSegments._2.upperFace == -1) then
-            val newSetIndex = faces.size
-            sweeplineStatus(i).lowerFace = newSetIndex
-            sweeplineStatus(i + 1).upperFace = newSetIndex
-            faces.addOne(
-              Set(
-                sweeplineStatus(i).from,
-                sweeplineStatus(i).to,
-                sweeplineStatus(i + 1).from,
-                sweeplineStatus(i + 1).to,
-              ),
-            )
-          end if
-
-        end for
-        // add references to outer face
-        sweeplineStatus.take(1).foreach(e => {
-          e.upperFace = 0
-          faces(0).++(e.from :: e.to :: Nil)
-        })
-        sweeplineStatus.reverse.take(1).foreach(e => {
-          e.lowerFace = 0
-          faces(0).++(e.from :: e.to :: Nil)
-        })
-
-      end for
-
-      return faces.toIndexedSeq
-    end getAllSetsPerFace
 
     /** Returns additional edges between nodes that need to be added to the according nodes in the confict-graph
       */
@@ -363,13 +233,13 @@ object GreedyOrthogonalization:
       // return the edges that need to be added to the conflict graph
       var additionalEdges = mutable.Seq[SimpleEdge]()
 
-      val orthoDir = dir match
-        case Direction.North | Direction.South => Direction.East
-        case Direction.West | Direction.East   => Direction.North
+      val orthoDir = dir.isVertical match
+        case true  => Direction.East
+        case false => Direction.North
 
-      val sets = dir match
-        case Direction.East | Direction.West   => verticalSets
-        case Direction.South | Direction.North => horizontalSets
+      val sets = dir.isHorizontal match
+        case true  => verticalSets
+        case false => horizontalSets
 
       // sweepPos is the position in the direction of sweeping
       case class Segment(sweepPos: Double, low: Double, high: Double, ref: Int) derives CanEqual
@@ -436,6 +306,53 @@ object GreedyOrthogonalization:
       return additionalEdges.toSeq
     end sweeplineDetectConflicts
 
+    /** @param faces
+      *   seq of all faces, each face is represented by the involved vertices in order
+      * @return
+      */
+    def getConnectedFaces(faces: Seq[IndexedSeq[NodeIndex]]): Set[Set[IndexedSeq[NodeIndex]]] =
+      var connectedFaces = faces.map(face => Set(face)).toBuffer
+
+      var progress = true
+      while progress == true do
+        progress = false
+        for i <- 0 until connectedFaces.size do
+          if i < connectedFaces.size then
+            val currentConnectedComp = connectedFaces(i)
+            val otherComponents      = connectedFaces.slice(i, connectedFaces.size).drop(1)
+              .filter(comp => comp.exists(faceA => currentConnectedComp.exists(faceB => faceA.exists(faceB.contains))))
+            if !otherComponents.isEmpty then connectedFaces(i) ++= (otherComponents.reduce(_.union(_)))
+            connectedFaces --= (otherComponents)
+            progress = if !otherComponents.isEmpty then true else progress
+        end for
+      end while
+      return connectedFaces.toSet
+    end getConnectedFaces
+
+    /** Works only for 2-connected graphs!
+      * @param face
+      *
+      * @param otherFace
+      *
+      * @return
+      */
+    def faceInsideOutsideTest(
+        face: IndexedSeq[NodeIndex],
+        otherFace: IndexedSeq[NodeIndex],
+    ): Boolean =
+      val intersectionTop    = otherFace.sliding(2).map(l =>
+        val max = pos(l(0).toInt).x1 max pos(l(0).toInt).x2 max pos(l(1).toInt).x1 max pos(l(1).toInt).x2
+        intersectRaw(
+          pos(l(0).toInt),
+          pos(l(1).toInt),
+          pos(face(0).toInt),
+          Vec2D(max * 2, max * 2),
+        ),
+      ).toSeq
+      val numIntersectionTop = intersectionTop.filter(x => x).size
+      ((numIntersectionTop % 2) != 0)
+    end faceInsideOutsideTest
+
     def compactGraph(graph: WeightedDiGraph, dir: Direction, disjointSets: DisjointSets[NodeIndex, Set[NodeIndex]]) =
 
       def getContracted = (n: NodeIndex) => {
@@ -446,7 +363,25 @@ object GreedyOrthogonalization:
         disjointSets.getOrElseThrow(repr)
       }
       // TODO: TODO: TODO: TODO: TODO: TODO: TODO: TODO:
-      val e               = getAllSetsPerFace(graph, dir)
+      val allFaces        = Seq[IndexedSeq[NodeIndex]]().empty // getAllFaces(graph)
+
+      val allNodesInFaces = allFaces.flatMap(identity).distinct
+
+      val allNodesNotInFaces = graph.vertices.indices.filter(v => !allNodesInFaces.contains(NodeIndex(v)))
+
+      val allFacesAndIsolated = allFaces.appendedAll(allNodesNotInFaces.map(i => IndexedSeq(NodeIndex(i))))
+
+      // find all faces that does not share any node
+      val allConnectedFaces = getConnectedFaces(allFacesAndIsolated)
+
+      val comp1 = allConnectedFaces.toSeq(0).toSeq
+      val comp2 = allConnectedFaces.toSeq(1).toSeq
+
+      val e1 = faceInsideOutsideTest(comp2(0), comp1(0))
+      val e2 = faceInsideOutsideTest(comp2(0), comp1(1))
+      val e3 = faceInsideOutsideTest(comp2(0), comp1(2))
+
+      // group unconnected component, that is completely inside another face together with this face
 
       // graph with vertial aligned vertices contracted
       val initialContracedDiGraph = Graph.fromEdges(
@@ -488,14 +423,14 @@ object GreedyOrthogonalization:
 
           val currentPosAndBB = getUnContracted(i).map(v => (v, pos(v.toInt), boxes(v.toInt)))
 
-          val currentInterval = dir match
-            case Direction.West | Direction.East   =>
+          val currentInterval = dir.isVertical match
+            case true  =>
               Interval(
                 currentPosAndBB.map((_, pos, box) => (pos.x2 - box.span.x2)).min,
                 currentPosAndBB.map((_, pos, box) => (pos.x2 + box.span.x2)).max,
                 0,
               )
-            case Direction.North | Direction.South =>
+            case false =>
               Interval(
                 currentPosAndBB.map((_, pos, box) => (pos.x1 - box.span.x1)).min,
                 currentPosAndBB.map((_, pos, box) => (pos.x1 + box.span.x1)).max,
@@ -507,13 +442,13 @@ object GreedyOrthogonalization:
           val neighborsWithPosBox = neighbors.flatMap(l => l.map(n => (n, pos(n.toInt), boxes(n.toInt))))
 
           val filteredNeighborsWithBoxPos = neighborsWithPosBox.filter((v, _, _) =>
-            (dir match
-              case Direction.East | Direction.West   =>
+            (dir.isHorizontal match
+              case true  =>
                 currentInterval.overlaps(
                   getUnContracted(v).map(v => pos(v.toInt).x2 - boxes(v.toInt).span.x2).min,
                   getUnContracted(v).map(v => pos(v.toInt).x2 + boxes(v.toInt).span.x2).max,
                 )
-              case Direction.South | Direction.North =>
+              case false =>
                 currentInterval.overlaps(
                   getUnContracted(v).map(v => pos(v.toInt).x1 - boxes(v.toInt).span.x1).min,
                   getUnContracted(v).map(v => pos(v.toInt).x1 + boxes(v.toInt).span.x1).max,
@@ -529,9 +464,9 @@ object GreedyOrthogonalization:
 
           // bounding box to add to neightbors boundary to get final position of vertices
           val currentBoundingBox = disjointSets.getOrElseThrow(i).map(v => boxes(v.toInt)).toSeq.sortBy(box =>
-            (dir match
-              case Direction.West | Direction.East   => box.span.x1
-              case Direction.North | Direction.South => box.span.x2),
+            (dir.isHorizontal match
+              case true  => box.span.x1
+              case false => box.span.x2),
           ).last
 
           val newPos = dir match
@@ -541,9 +476,9 @@ object GreedyOrthogonalization:
             case Direction.South => neighborsBoundary._2.x2 + neighborsBoundary._3.span.x2 + currentBoundingBox.span.x2
 
           getUnContracted(i).foreach(v =>
-            dir match
-              case Direction.West | Direction.East   => pos.update(v.toInt, Vec2D(newPos, pos(v.toInt).x2))
-              case Direction.North | Direction.South => pos.update(v.toInt, Vec2D(pos(v.toInt).x1, newPos)),
+            dir.isHorizontal match
+              case true  => pos.update(v.toInt, Vec2D(newPos, pos(v.toInt).x2))
+              case false => pos.update(v.toInt, Vec2D(pos(v.toInt).x1, newPos)),
           )
         end if
       end for
