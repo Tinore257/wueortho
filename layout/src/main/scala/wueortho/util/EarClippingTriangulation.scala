@@ -41,17 +41,41 @@ object EarClippingTriangulation:
         val sameSide = triangle.permutations.map(l => orientationTest(l(0), l(1), l(2)) == orientationTest(l(0), l(1), p)).reduce(_&&_)
         sameSide
 
+    /**
+      * calculates the index of the next vertex of the current polygon
+      *
+      * @param index the current index
+      * @return next index after the provided index
+      */
     def nextIndex(index: Int):Int = 
         val n = _vertices.length
         (index + 1) % n
 
+    /**
+    * calculates the index of the previous vertex of the current polygon
+    *
+    * @param index the index of the current vertex
+    * @return
+    */
     def prevIndex(index: Int):Int = 
         val n = _vertices.length
         (index-1+n)%n
 
+    /**
+      * gets the next Vertex from the given index
+      *
+      * @param index the index of the current vertex
+      * @return the next vertex
+      */
     def next(index: Int): Vertex =
         _vertices(nextIndex(index))
 
+    /**
+      * gets the previous vertex from the given index 
+      *
+      * @param index the index of the current vertex
+      * @return the previous vertex
+      */
     def prev(index: Int): Vertex =
         _vertices(prevIndex(index))
 
@@ -160,6 +184,11 @@ object EarClippingTriangulation:
           val _ = additionalEdges
         end for
 
+    /**
+      * tests, if the vertex at the index is ear, convex or reflex 
+      *
+      * @param index index for vertex to update
+      */
     def updateVertexType(index: Int): Unit =
         if testConvex(index) && testEar(index) then _vertices(index).nodeType = NodeType.EAR
              else if testConvex(index) then _vertices(index).nodeType = NodeType.CONVEX
