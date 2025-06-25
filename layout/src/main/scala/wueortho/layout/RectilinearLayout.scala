@@ -28,17 +28,18 @@ object RectilinearLayout:
     val stack                        = mutable.ArrayBuffer.empty[BiNode]
     val visited                      = mutable.BitSet.empty
 
-    def dfs(node: BiNode): Seq[Set[SimpleEdge]] =
-      var res: Seq[Set[SimpleEdge]] = Seq.empty
+    def dfs(node: BiNode): Set[SimpleEdge] =
+      var res: Set[SimpleEdge] = Set.empty
       while (node.edges.exists(e => !visited.contains(e.toNode.toInt))) do
         // skip all nodes, that were already visited
         val newNeighbors = node.edges.filter(e => !visited.contains(e.toNode.toInt))
         if (!newNeighbors.isEmpty) then
-          val nextNode = newNeighbors.next()
-          res = res.appendedAll(
+          val nextEdge = newNeighbors.next()
+          res += (SimpleEdge(node.id, nextEdge.toNode))
+          res ++= (
             dfs(
-              BiNode(nextNode.toNode, node.depth + 1, node.depth + 1, G.vertices(nextNode._1.toInt).neighbors.iterator),
-            ),
+              BiNode(nextEdge.toNode, node.depth + 1, node.depth + 1, G.vertices(nextEdge._1.toInt).neighbors.iterator),
+            )
           )
       end while
 
