@@ -21,11 +21,17 @@ import wueortho.data.WeightedLink
 
 object RectilinearLayout:
 
+  @main def main() =
+    val weightedEdges: Seq[WeightedEdge] =
+      Seq(WeightedEdge(NodeIndex(0), NodeIndex(1), 1.0), WeightedEdge(NodeIndex(1), NodeIndex(2), 1.0))
+    val graph                            = Graph.fromWeightedEdges(weightedEdges, 3).mkWeightedGraph;
+    val result                           = tarjanHopcraft(graph)
+
   case class BiNode(id: NodeIndex, depth: Integer, lowpoint: Integer, edges: Iterator[WeightedLink])
 
   def tarjanHopcraft(G: WeightedGraph): Seq[Set[SimpleEdge]] =
     val result: Seq[Set[SimpleEdge]] = Seq.empty
-    val stack                        = mutable.ArrayBuffer.empty[BiNode]
+    val edgeStack                    = mutable.ArrayBuffer.empty[BiNode]
     val visited                      = mutable.BitSet.empty
 
     def dfs(node: BiNode): Set[SimpleEdge] =
