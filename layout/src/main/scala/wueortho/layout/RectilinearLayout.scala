@@ -48,11 +48,13 @@ object RectilinearLayout:
 
     def dfs(node: BiNode): Set[NodeIndex] =
       var res: Set[NodeIndex] = Set.empty
+      var counter             = 0;
       visited.addOne(node.id.toInt)
       res += node.id
       node.lowpoint = node.depth
       var outgoing            = node.edges.toSeq
       while (outgoing.exists(e => !visited.contains(e.toNode.toInt))) do
+        counter = counter + 1;
         // update lowpoint if visited neigbor has lower depth
         node.lowpoint = node.lowpoint min outgoing.filter(e => visited.contains((e.toNode.toInt)))
           .map(e => nodeArray(e.toNode.toInt).depth).minOption.getOrElse(node.lowpoint)
@@ -71,8 +73,10 @@ object RectilinearLayout:
       node.lowpoint = node.lowpoint min (if outgoing.isEmpty then node.depth
                                          else outgoing.map(l => nodeArray(l.toNode.toInt).lowpoint).min)
 
-      // test, if current node v is cutVertex (has child y with lowpoint(y) >= depth(v))
-      if outgoing.exists(y => nodeArray(y.toNode.toInt).lowpoint >= node.depth) then cutVertices.addOne(node)
+      if node.depth > 0 then
+        // test, if current node v is cutVertex (has child y with lowpoint(y) >= depth(v))
+        if outgoing.exists(y => nodeArray(y.toNode.toInt).lowpoint >= node.depth) then cutVertices.addOne(node)
+      else if counter > 1 then cutVertices.addOne(node)
       res
     end dfs
 
@@ -81,6 +85,7 @@ object RectilinearLayout:
       result = result.appended(
         dfs(BiNode(undicoveredNodes(0).id, 0, 0, G.vertices(undicoveredNodes(0).id.toInt).neighbors.iterator)),
       )
+    end while
 
     result.toSeq
   end tarjanHopcraft
