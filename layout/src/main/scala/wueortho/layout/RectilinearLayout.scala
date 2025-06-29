@@ -38,21 +38,21 @@ object RectilinearLayout:
 
   case class BiNode(id: NodeIndex, var depth: Integer, var lowpoint: Integer, var edges: Iterator[WeightedLink])
 
-  def tarjanHopcraft(G: WeightedGraph): Seq[Set[SimpleEdge]] =
-    var result: mutable.Seq[Set[SimpleEdge]] = mutable.Seq.empty
-    val edgeStack                            = mutable.ArrayBuffer.empty[BiNode]
-    val visited                              = mutable.BitSet.empty
-    var nodeArray                            = G.vertices.zipWithIndex.map((v, i) => BiNode(NodeIndex(i), 0, 0, v.neighbors.iterator))
+  def tarjanHopcraft(G: WeightedGraph): Seq[Set[NodeIndex]] =
+    var result: mutable.Seq[Set[NodeIndex]] = mutable.Seq.empty
+    val edgeStack                           = mutable.ArrayBuffer.empty[BiNode]
+    val visited                             = mutable.BitSet.empty
+    var nodeArray                           = G.vertices.zipWithIndex.map((v, i) => BiNode(NodeIndex(i), 0, 0, v.neighbors.iterator))
 
-    def dfs(node: BiNode): Set[SimpleEdge] =
-      var res: Set[SimpleEdge] = Set.empty
+    def dfs(node: BiNode): Set[NodeIndex] =
+      var res: Set[NodeIndex] = Set.empty
       visited.addOne(node.id.toInt)
-      var outgoing             = node.edges.toSeq
+      res += node.id
+      var outgoing            = node.edges.toSeq
       while (outgoing.exists(e => !visited.contains(e.toNode.toInt))) do
         // skip all nodes, that were already visited
         val newNeighbors = outgoing.filter(e => !visited.contains(e.toNode.toInt)).iterator
         val nextEdge     = newNeighbors.next()
-        res += (SimpleEdge(node.id, nextEdge.toNode))
         val newNode      = nodeArray(nextEdge.toNode.toInt)
         newNode.depth = node.depth + 1;
         newNode.lowpoint = node.depth + 1;
