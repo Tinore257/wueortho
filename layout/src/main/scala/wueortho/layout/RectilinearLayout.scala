@@ -27,6 +27,7 @@ import wueortho.util.mutable.LinearIntervalTree.empty
       WeightedEdge(NodeIndex(1), NodeIndex(2), 1.0),
       WeightedEdge(NodeIndex(2), NodeIndex(3), 1.0),
       WeightedEdge(NodeIndex(1), NodeIndex(4), 1.0),
+      WeightedEdge(NodeIndex(3), NodeIndex(4), 1.0),
       WeightedEdge(NodeIndex(5), NodeIndex(6), 1.0),
       WeightedEdge(NodeIndex(5), NodeIndex(7), 1.0),
     )
@@ -36,20 +37,25 @@ import wueortho.util.mutable.LinearIntervalTree.empty
 end main
 object RectilinearLayout:
 
-  case class BiNode(id: NodeIndex, var depth: Integer, var lowpoint: Integer, var edges: Iterator[WeightedLink])
+  case class BiNode(id: NodeIndex, var depth: Int, var lowpoint: Int, var edges: Iterator[WeightedLink])
 
   def tarjanHopcraft(G: WeightedGraph): Seq[Set[NodeIndex]] =
     var result: mutable.Seq[Set[NodeIndex]] = mutable.Seq.empty
-    val edgeStack                           = mutable.ArrayBuffer.empty[BiNode]
+    val cutVertices                         = mutable.ArrayBuffer.empty[BiNode]
     val visited                             = mutable.BitSet.empty
-    var nodeArray                           = G.vertices.zipWithIndex.map((v, i) => BiNode(NodeIndex(i), 0, 0, v.neighbors.iterator))
+    var nodeArray                           = G.vertices.zipWithIndex
+      .map((v, i) => BiNode(NodeIndex(i), Integer.MAX_VALUE, Integer.MAX_VALUE, v.neighbors.iterator))
 
     def dfs(node: BiNode): Set[NodeIndex] =
       var res: Set[NodeIndex] = Set.empty
       visited.addOne(node.id.toInt)
       res += node.id
+      node.lowpoint = node.depth
       var outgoing            = node.edges.toSeq
       while (outgoing.exists(e => !visited.contains(e.toNode.toInt))) do
+        // update lowpoint if visited neigbor has lower depth
+        node.lowpoint = node.lowpoint min outgoing.filter(e => visited.contains((e.toNode.toInt)))
+          .map(e => nodeArray(e.toNode.toInt).depth).minOption.getOrElse(node.lowpoint)
         // skip all nodes, that were already visited
         val newNeighbors = outgoing.filter(e => !visited.contains(e.toNode.toInt)).iterator
         val nextEdge     = newNeighbors.next()
@@ -60,9 +66,13 @@ object RectilinearLayout:
         res ++= (
           dfs(newNode)
         )
+        node.lowpoint = node.lowpoint min newNode.lowpoint
       end while
-      node.lowpoint =
-        if node.edges.isEmpty then node.depth else node.edges.map(l => nodeArray(l.toNode.toInt).lowpoint).min
+      node.lowpoint = node.lowpoint min (if outgoing.isEmpty then node.depth
+                                         else outgoing.map(l => nodeArray(l.toNode.toInt).lowpoint).min)
+
+      // test, if current node v is cutVertex (has child y with lowpoint(y) >= depth(v))
+      if outgoing.exists(y => nodeArray(y.toNode.toInt).lowpoint >= node.depth) then cutVertices.addOne(node)
       res
     end dfs
 
@@ -71,6 +81,7 @@ object RectilinearLayout:
       result = result.appended(
         dfs(BiNode(undicoveredNodes(0).id, 0, 0, G.vertices(undicoveredNodes(0).id.toInt).neighbors.iterator)),
       )
+
     result.toSeq
   end tarjanHopcraft
 
