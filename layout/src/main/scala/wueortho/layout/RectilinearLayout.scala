@@ -30,8 +30,14 @@ import wueortho.util.mutable.LinearIntervalTree.empty
       WeightedEdge(NodeIndex(3), NodeIndex(4), 1.0),
       WeightedEdge(NodeIndex(5), NodeIndex(6), 1.0),
       WeightedEdge(NodeIndex(5), NodeIndex(7), 1.0),
+      WeightedEdge(NodeIndex(0), NodeIndex(8), 1.0),
+      WeightedEdge(NodeIndex(8), NodeIndex(9), 1.0),
+      WeightedEdge(NodeIndex(8), NodeIndex(10), 1.0),
+      WeightedEdge(NodeIndex(9), NodeIndex(10), 1.0),
+      WeightedEdge(NodeIndex(9), NodeIndex(11), 1.0),
+      WeightedEdge(NodeIndex(8), NodeIndex(11), 1.0),
     )
-  val graph                            = Graph.fromWeightedEdges(weightedEdges, 8).mkWeightedGraph;
+  val graph                            = Graph.fromWeightedEdges(weightedEdges, 12).mkWeightedGraph;
   val result                           = RectilinearLayout.tarjanHopcraft(graph)
   println("Done!");
 end main
@@ -39,20 +45,27 @@ object RectilinearLayout:
 
   case class BiNode(id: NodeIndex, var depth: Int, var lowpoint: Int, var edges: Iterator[WeightedLink])
 
-  def tarjanHopcraft(G: WeightedGraph): Seq[Set[NodeIndex]] =
-    var result: mutable.Seq[Set[NodeIndex]] = mutable.Seq.empty
-    val cutVertices                         = mutable.ArrayBuffer.empty[BiNode]
-    val visited                             = mutable.BitSet.empty
-    var nodeArray                           = G.vertices.zipWithIndex
+  def tarjanHopcraft(G: WeightedGraph): (Set[NodeIndex], Seq[Set[WeightedEdge]]) =
+    var result: (Set[NodeIndex], Seq[Set[WeightedEdge]]) = (Set.empty, Seq.empty)
+    val cutVertices                                      = mutable.ArrayBuffer.empty[BiNode]
+    val visited                                          = mutable.BitSet.empty
+    var nodeArray                                        = G.vertices.zipWithIndex
       .map((v, i) => BiNode(NodeIndex(i), Integer.MAX_VALUE, Integer.MAX_VALUE, v.neighbors.iterator))
 
-    def dfs(node: BiNode): Set[NodeIndex] =
-      var res: Set[NodeIndex] = Set.empty
-      var counter             = 0;
+    def add(
+        a: (Set[NodeIndex], Set[WeightedEdge]),
+        b: (Set[NodeIndex], Set[WeightedEdge]),
+    ): (Set[NodeIndex], Set[WeightedEdge]) =
+      (a._1.++(b._1), a._2.++(b._2))
+
+    def dfs(node: BiNode): (Set[NodeIndex], Set[WeightedEdge]) =
+      var res: (Set[NodeIndex], Set[WeightedEdge]) = (Set.empty, Set.empty)
+
+      var counter  = 0;
       visited.addOne(node.id.toInt)
-      res += node.id
+      res = add(res, (Set(node.id), Set.empty))
       node.lowpoint = node.depth
-      var outgoing            = node.edges.toSeq
+      val outgoing = node.edges.toSeq
       while (outgoing.exists(e => !visited.contains(e.toNode.toInt))) do
         counter = counter + 1;
         // update lowpoint if visited neigbor has lower depth
@@ -65,29 +78,29 @@ object RectilinearLayout:
         newNode.depth = node.depth + 1;
         newNode.lowpoint = node.depth + 1;
         newNode.edges = G.vertices(nextEdge.toNode.toInt).neighbors.filter(e => e.toNode != node.id).iterator;
-        res ++= (
-          dfs(newNode)
-        )
+        res = add(res, dfs(newNode))
         node.lowpoint = node.lowpoint min newNode.lowpoint
       end while
       node.lowpoint = node.lowpoint min (if outgoing.isEmpty then node.depth
                                          else outgoing.map(l => nodeArray(l.toNode.toInt).lowpoint).min)
 
-      if node.depth > 0 then
+      if node.depth > 0 then // for a non-root node
         // test, if current node v is cutVertex (has child y with lowpoint(y) >= depth(v))
         if outgoing.exists(y => nodeArray(y.toNode.toInt).lowpoint >= node.depth) then cutVertices.addOne(node)
-      else if counter > 1 then cutVertices.addOne(node)
+      else if counter > 1 then
+        cutVertices.addOne(node) // root-node is cut-vertex if it has more than one child in dfs tree
       res
     end dfs
 
     while (nodeArray.exists(node => !visited.contains(node.id.toInt))) do
       val undicoveredNodes = nodeArray.filter(n => !visited.contains(n.id.toInt))
-      result = result.appended(
-        dfs(BiNode(undicoveredNodes(0).id, 0, 0, G.vertices(undicoveredNodes(0).id.toInt).neighbors.iterator)),
+      val component        = dfs(
+        BiNode(undicoveredNodes(0).id, 0, 0, G.vertices(undicoveredNodes(0).id.toInt).neighbors.iterator),
       )
+      result = (result._1.++(component._1), result._2.appended(component._2))
     end while
 
-    result.toSeq
+    result
   end tarjanHopcraft
 
 end RectilinearLayout
