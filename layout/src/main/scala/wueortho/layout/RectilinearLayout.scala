@@ -1,24 +1,11 @@
 package wueortho.layout
 
-import wueortho.data.{Vec2D, VertexLayout, WeightedGraph}
-import wueortho.data.Direction
+import wueortho.data.{WeightedGraph}
 import scala.collection.mutable
 import wueortho.data.WeightedEdge
-import wueortho.util.mutable.DisjointSets
-import wueortho.util.Monoid
 import wueortho.data.NodeIndex
-import wueortho.util.GraphConversions.wg2wd
 import wueortho.data.Graph
-import wueortho.data.SimpleEdge
-import wueortho.data.VertexBoxes
-import wueortho.data.WeightedDiGraph
-import wueortho.util.mutable.LinearIntervalTree.Interval
-import wueortho.util.mutable.LinearIntervalTree
-import scala.collection.mutable.ArrayBuffer
-import scala.compiletime.ops.double
-import wueortho.routing.OrthogonalVisibilityGraph.neighbor
 import wueortho.data.WeightedLink
-import wueortho.util.mutable.LinearIntervalTree.empty
 
 @main def main() =
   val weightedEdges: Seq[WeightedEdge] =
@@ -35,7 +22,7 @@ import wueortho.util.mutable.LinearIntervalTree.empty
       WeightedEdge(NodeIndex(8), NodeIndex(10), 1.0),
       WeightedEdge(NodeIndex(9), NodeIndex(10), 1.0),
       WeightedEdge(NodeIndex(9), NodeIndex(11), 1.0),
-      WeightedEdge(NodeIndex(8), NodeIndex(11), 1.0),
+      WeightedEdge(NodeIndex(10), NodeIndex(11), 1.0),
     )
   val graph                            = Graph.fromWeightedEdges(weightedEdges, 12).mkWeightedGraph;
   val result                           = RectilinearLayout.tarjanHopcraft(graph)
@@ -46,11 +33,12 @@ object RectilinearLayout:
   case class BiNode(id: NodeIndex, var depth: Int, var lowpoint: Int, var edges: Iterator[WeightedLink])
 
   def tarjanHopcraft(G: WeightedGraph): (Set[NodeIndex], Seq[Set[WeightedEdge]]) =
-    var result: (Set[NodeIndex], Seq[Set[WeightedEdge]]) = (Set.empty, Seq.empty)
-    val cutVertices                                      = mutable.ArrayBuffer.empty[BiNode]
-    val visited                                          = mutable.BitSet.empty
-    var nodeArray                                        = G.vertices.zipWithIndex
+    var result: (Set[NodeIndex]) = (Set.empty)
+    val visited                  = mutable.BitSet.empty
+    var nodeArray                = G.vertices.zipWithIndex
       .map((v, i) => BiNode(NodeIndex(i), Integer.MAX_VALUE, Integer.MAX_VALUE, v.neighbors.iterator))
+
+    var allComponentEdges: Set[Set[WeightedEdge]] = Set.empty
 
     def add(
         a: (Set[NodeIndex], Set[WeightedEdge]),
@@ -61,46 +49,73 @@ object RectilinearLayout:
     def dfs(node: BiNode): (Set[NodeIndex], Set[WeightedEdge]) =
       var res: (Set[NodeIndex], Set[WeightedEdge]) = (Set.empty, Set.empty)
 
-      var counter  = 0;
+      var allBranches: Set[Set[WeightedEdge]] = Set.empty
+
+      var isArticulation: Boolean = false;
+      var counter                 = 0;
       visited.addOne(node.id.toInt)
-      res = add(res, (Set(node.id), Set.empty))
       node.lowpoint = node.depth
-      val outgoing = node.edges.toSeq
+      val outgoing                = node.edges.toSeq
+
+      // TODO: Testen, ob hier wirklich alle Kanten zu bereits besuchen Knoten hinzugefügt werden
+      allBranches = allBranches
+        .++(outgoing.filter(e => visited.contains(e.toNode.toInt)).map(l => Set(WeightedEdge(node.id, l.toNode, 1.0))))
+
       while (outgoing.exists(e => !visited.contains(e.toNode.toInt))) do
         counter = counter + 1;
         // update lowpoint if visited neigbor has lower depth
         node.lowpoint = node.lowpoint min outgoing.filter(e => visited.contains((e.toNode.toInt)))
           .map(e => nodeArray(e.toNode.toInt).depth).minOption.getOrElse(node.lowpoint)
         // skip all nodes, that were already visited
-        val newNeighbors = outgoing.filter(e => !visited.contains(e.toNode.toInt)).iterator
-        val nextEdge     = newNeighbors.next()
-        val newNode      = nodeArray(nextEdge.toNode.toInt)
+        val newNeighbors              = outgoing.filter(e => !visited.contains(e.toNode.toInt)).iterator
+        val nextLink                  = newNeighbors.next()
+        val nextEdge                  = WeightedEdge(node.id, nextLink.toNode, 1.0)
+        val newNode                   = nodeArray(nextLink.toNode.toInt)
         newNode.depth = node.depth + 1;
         newNode.lowpoint = node.depth + 1;
-        newNode.edges = G.vertices(nextEdge.toNode.toInt).neighbors.filter(e => e.toNode != node.id).iterator;
+        newNode.edges = G.vertices(nextLink.toNode.toInt).neighbors.filter(e => e.toNode != node.id).iterator;
         res = add(res, dfs(newNode))
+        // create edge set for current branch with rekursive edges
+        val branch: Set[WeightedEdge] = res._2.+(nextEdge)
+
+        if nodeArray(nextEdge.to.toInt).lowpoint >= node.depth then isArticulation = true
         node.lowpoint = node.lowpoint min newNode.lowpoint
+
+        allBranches = allBranches.+(branch)
+
       end while
       node.lowpoint = node.lowpoint min (if outgoing.isEmpty then node.depth
                                          else outgoing.map(l => nodeArray(l.toNode.toInt).lowpoint).min)
 
-      if node.depth > 0 then // for a non-root node
-        // test, if current node v is cutVertex (has child y with lowpoint(y) >= depth(v))
-        if outgoing.exists(y => nodeArray(y.toNode.toInt).lowpoint >= node.depth) then cutVertices.addOne(node)
+      var returnEdges: Set[WeightedEdge] = Set.empty
+
+      // for a non-root node: test, if current node v is cutVertex (has child y with lowpoint(y) >= depth(v))
+      if node.depth > 0 && isArticulation then
+        res = add(res, (Set(node.id), Set.empty))
+        // each dfs branch is a biconnected component => add to allComponentEdges
+        allBranches.foreach(b => allComponentEdges.+=(b))
+        // res._2 = Set.empty
       else if counter > 1 then
-        cutVertices.addOne(node) // root-node is cut-vertex if it has more than one child in dfs tree
-      res
-    end dfs
+        // res = add(res, (Set(node.id), Set.empty)) // root-node is cut-vertex if it has more than one child in dfs tree
+        res = add(res, (Set(node.id), Set.empty))
+        // each dfs branch is a biconnected component => add to allComponentEdges
+        allBranches.foreach(b => allComponentEdges.+=(b))
+      else // no cut-vertex at all
+        // merge branches to one collection
+        returnEdges = allBranches.flatMap(b => b)
+      end if
+      (res._1, returnEdges)
+    end dfs // Hallo Kolla
 
     while (nodeArray.exists(node => !visited.contains(node.id.toInt))) do
       val undicoveredNodes = nodeArray.filter(n => !visited.contains(n.id.toInt))
       val component        = dfs(
         BiNode(undicoveredNodes(0).id, 0, 0, G.vertices(undicoveredNodes(0).id.toInt).neighbors.iterator),
       )
-      result = (result._1.++(component._1), result._2.appended(component._2))
+      result = (result.++(component._1))
     end while
 
-    result
+    (result, allComponentEdges.toSeq)
   end tarjanHopcraft
 
 end RectilinearLayout
