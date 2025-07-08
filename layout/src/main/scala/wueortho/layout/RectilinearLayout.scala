@@ -6,6 +6,7 @@ import wueortho.data.WeightedEdge
 import wueortho.data.NodeIndex
 import wueortho.data.Graph
 import wueortho.data.WeightedLink
+import scala.collection.AbstractIterator
 
 @main def main() =
   val weightedEdges: Seq[WeightedEdge] =
@@ -117,5 +118,22 @@ object RectilinearLayout:
 
     (result, allComponentEdges.toSeq)
   end tarjanHopcraft
+
+  /** Returns a iterator to traverse along a face
+    *
+    * @param graphWithAlignments
+    * @param start
+    * @param end
+    * @return
+    */
+  def traverseAlignedFace(graphWithAlignments: WeightedGraph, start: NodeIndex, end: NodeIndex): Iterator[NodeIndex] =
+    new AbstractIterator[NodeIndex]:
+      private var current   = start
+      def hasNext           = current != end
+      def next(): NodeIndex =
+        val elem = current
+        current = NodeIndex(current.toInt + 1)
+        elem
+  end traverseAlignedFace
 
 end RectilinearLayout
