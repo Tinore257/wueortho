@@ -1,16 +1,14 @@
 package wueortho.data
 import scala.collection.mutable
-import wueortho.data.Graph.Builder
-import wueortho.data.Graph.DiBuilder
 
 // reverseIndex: Position in der Adjazenzliste der toNode, von dem Link zur aktuellen fromNode
-case class AlignedWeightedLink(toNode: NodeIndex, weight: Double, reverseIndex: Int, orientation: Direction):
-  def unalign = WeightedLink(toNode, weight, reverseIndex)
+case class AlignedLink(toNode: NodeIndex, reverseIndex: Int, direction: Direction):
+  def unalign = BasicLink(toNode, reverseIndex)
 
-case class AlignedWeightedEdge(from: NodeIndex, to: NodeIndex, weight: Double, orientation: Direction) derives CanEqual:
-  def unalign = WeightedEdge(from, to, weight)
+case class AlignedEdge(from: NodeIndex, to: NodeIndex, direction: Direction) derives CanEqual:
+  def unalign = SimpleEdge(from, to)
 
-trait AlignedWeightedGraph extends Graph[AlignedWeightedLink, AlignedWeightedEdge]
+trait AlignedGraph extends Graph[AlignedLink, AlignedEdge]
 
 private def mkEdges[L, E](nodes: Seq[Vertex[L]], mk: (NodeIndex, L) => E, toBasicLink: L => BasicLink) = for
   (node, u) <- nodes.zipWithIndex
@@ -19,32 +17,54 @@ private def mkEdges[L, E](nodes: Seq[Vertex[L]], mk: (NodeIndex, L) => E, toBasi
   if basicLink.toNode.toInt > u || (basicLink.toNode.toInt == u && basicLink.reverseIndex > j)
 yield mk(NodeIndex(u), link)
 
-def builder()   = Builder.empty
-def diBuilder() = DiBuilder.empty
+class ABuilder private (
+    adj: mutable.ArrayBuffer[mutable.ArrayBuffer[(NodeIndex, Int, Direction)]],
+):
+  private def ensureSize(i: Int) = if adj.size <= i then adj ++= Seq.fill(i - adj.size + 1)(mutable.ArrayBuffer.empty)
 
-private def fromEdgesUndirected[E](ex: E => (NodeIndex, NodeIndex, Double), edges: Seq[E], size: Int) =
-  val bld = if size < 0 then builder() else Builder.reserve(size)
-  edges.map(ex).foldLeft(bld)(_.addEdge.tupled(_))
-  if size >= 0 then require(bld.size == size, s"node index was out of bounds [0, $size)")
-  bld
+  def addEdge(from: NodeIndex, to: NodeIndex, orientation: Direction): ABuilder =
 
-private def fromEdgesDirected[E](ex: E => (NodeIndex, NodeIndex, Double), edges: Seq[E], size: Int) =
-  val bld = if size < 0 then diBuilder() else DiBuilder.reserve(size)
-  edges.map(ex).foldLeft(bld)(_.addEdge.tupled(_))
-  if size >= 0 then require(bld.size == size, s"node index was out of bounds [0, $size)")
-  bld
-extension (x: Builder)
-  def mkAlignedWeightedGraph: AlignedWeightedGraph = AWGImpl(
-    x.adj.map(links => Vertex(links.map((v, w, rl) => AlignedWeightedLink(v, w, rl)).toIndexedSeq)).toIndexedSeq,
+    ensureSize(from.toInt max to.toInt)
+    if from == to then // beware the loops
+      adj(from.toInt) += ((to, adj(from.toInt).size + 1, orientation))
+      adj(to.toInt) += ((from, adj(from.toInt).size - 1, orientation))
+    else
+      adj(from.toInt) += ((to, adj(to.toInt).size, orientation))
+      adj(to.toInt) += ((from, adj(from.toInt).size - 1, orientation))
+    this
+  end addEdge
+
+  def addEdge(from: NodeIndex, to: NodeIndex): ABuilder = addEdge(from, to, Direction.North)
+
+  def size = adj.size
+
+  def mkAlignedGraph: AlignedGraph = AGImpl(
+    adj.map(links => Vertex(links.map((v, rl, dir) => AlignedLink(v, rl, dir)).toIndexedSeq)).toIndexedSeq,
   )
-end extension
-case class fromAlignedWeightedEdges(edges: Seq[AlignedWeightedEdge], size: Int = -1):
-  def mkAlignedWeightedGraph: AlignedWeightedGraph =
-    fromEdgesUndirected[AlignedWeightedEdge](e => (e.from, e.to, e.weight), edges, size).mkAlignedWeightedGraph
+end ABuilder
 
-private case class AWGImpl[Graph](
-    nodes: IndexedSeq[Vertex[AlignedWeightedLink]],
-) extends AlignedWeightedGraph:
+object ABuilder:
+
+  def empty = ABuilder { mutable.ArrayBuffer.empty }
+
+  def reserve(n: Int) = ABuilder(mutable.ArrayBuffer.fill(n)(mutable.ArrayBuffer.empty))
+
+def alBuilder() = ABuilder.empty
+
+case class fromAlignedEdges(edges: Seq[AlignedEdge], size: Int = -1):
+  def mkAlignedGraph: AlignedGraph =
+    fromEdgesUndirected[AlignedEdge](e => (e.from, e.to, e.direction), edges, size).mkAlignedGraph
+
+private def fromEdgesUndirected[E](ex: E => (NodeIndex, NodeIndex, Direction), edges: Seq[E], size: Int) =
+  val bld = if size < 0 then alBuilder() else ABuilder.reserve(size)
+
+  edges.map(ex).foldLeft(bld)(_.addEdge.tupled(_))
+  if size >= 0 then require(bld.size == size, s"node index was out of bounds [0, $size)")
+  bld
+
+private case class AGImpl[Graph](
+    nodes: IndexedSeq[Vertex[AlignedLink]],
+) extends AlignedGraph:
   val northAligned: mutable.BitSet = mutable.BitSet.empty
   val southAligned: mutable.BitSet = mutable.BitSet.empty
   val westAligned: mutable.BitSet  = mutable.BitSet.empty
@@ -54,5 +74,5 @@ private case class AWGImpl[Graph](
   override def numberOfEdges       = nodes.map(_.neighbors.length).sum / 2
   override def vertices            = nodes
   override lazy val edges          =
-    mkEdges(nodes, (u, l) => AlignedWeightedEdge(u, l.toNode, l.weight, l.orientation), _.unalign.unweighted)
-end AWGImpl
+    mkEdges(nodes, (u, l) => AlignedEdge(u, l.toNode, l.direction), _.unalign)
+end AGImpl
