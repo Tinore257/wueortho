@@ -49,18 +49,20 @@ object ABuilder:
 
   def reserve(n: Int) = ABuilder(mutable.ArrayBuffer.fill(n)(mutable.ArrayBuffer.empty))
 
-def alBuilder() = ABuilder.empty
+def aBuilder() = ABuilder.empty
 
-case class fromAlignedEdges(edges: Seq[AlignedEdge], size: Int = -1):
-  def mkAlignedGraph: AlignedGraph =
-    fromEdgesUndirected[AlignedEdge](e => (e.from, e.to, e.direction), edges, size).mkAlignedGraph
+object AlignedGraph:
+  case class fromAlignedEdges(edges: Seq[AlignedEdge], size: Int = -1):
+    def mkAlignedGraph: AlignedGraph =
+      fromEdgesUndirected[AlignedEdge](e => (e.from, e.to, e.direction), edges, size).mkAlignedGraph
 
-private def fromEdgesUndirected[E](ex: E => (NodeIndex, NodeIndex, Direction), edges: Seq[E], size: Int) =
-  val bld = if size < 0 then alBuilder() else ABuilder.reserve(size)
+  private def fromEdgesUndirected[E](ex: E => (NodeIndex, NodeIndex, Direction), edges: Seq[E], size: Int) =
+    val bld = if size < 0 then aBuilder() else ABuilder.reserve(size)
 
-  edges.map(ex).foldLeft(bld)(_.addEdge.tupled(_))
-  if size >= 0 then require(bld.size == size, s"node index was out of bounds [0, $size)")
-  bld
+    edges.map(ex).foldLeft(bld)(_.addEdge.tupled(_))
+    if size >= 0 then require(bld.size == size, s"node index was out of bounds [0, $size)")
+    bld
+end AlignedGraph
 
 private case class AGImpl[Graph](
     nodes: IndexedSeq[Vertex[AlignedLink]],
