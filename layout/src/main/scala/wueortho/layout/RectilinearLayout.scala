@@ -7,26 +7,30 @@ import wueortho.data.NodeIndex
 import wueortho.data.Graph
 import wueortho.data.WeightedLink
 import scala.collection.AbstractIterator
+import wueortho.data.Direction
+import wueortho.data.AlignedEdge
+import wueortho.data.AlignedGraph
 
 @main def main() =
-  val weightedEdges: Seq[WeightedEdge] =
+  val alignedEdges: Seq[AlignedEdge] =
     Seq(
-      WeightedEdge(NodeIndex(0), NodeIndex(1), 1.0),
-      WeightedEdge(NodeIndex(1), NodeIndex(2), 1.0),
-      WeightedEdge(NodeIndex(2), NodeIndex(3), 1.0),
-      WeightedEdge(NodeIndex(1), NodeIndex(4), 1.0),
-      WeightedEdge(NodeIndex(3), NodeIndex(4), 1.0),
-      WeightedEdge(NodeIndex(5), NodeIndex(6), 1.0),
-      WeightedEdge(NodeIndex(5), NodeIndex(7), 1.0),
-      WeightedEdge(NodeIndex(0), NodeIndex(8), 1.0),
-      WeightedEdge(NodeIndex(8), NodeIndex(9), 1.0),
-      WeightedEdge(NodeIndex(8), NodeIndex(10), 1.0),
-      WeightedEdge(NodeIndex(9), NodeIndex(10), 1.0),
-      WeightedEdge(NodeIndex(9), NodeIndex(11), 1.0),
-      WeightedEdge(NodeIndex(10), NodeIndex(11), 1.0),
+      AlignedEdge(NodeIndex(0), NodeIndex(1), Direction.North),
+      AlignedEdge(NodeIndex(1), NodeIndex(2), Direction.North),
+      AlignedEdge(NodeIndex(2), NodeIndex(3), Direction.North),
+      AlignedEdge(NodeIndex(1), NodeIndex(4), Direction.North),
+      AlignedEdge(NodeIndex(3), NodeIndex(4), Direction.North),
+      AlignedEdge(NodeIndex(5), NodeIndex(6), Direction.North),
+      AlignedEdge(NodeIndex(5), NodeIndex(7), Direction.North),
+      AlignedEdge(NodeIndex(0), NodeIndex(8), Direction.North),
+      AlignedEdge(NodeIndex(8), NodeIndex(9), Direction.North),
+      AlignedEdge(NodeIndex(8), NodeIndex(10), Direction.North),
+      AlignedEdge(NodeIndex(9), NodeIndex(10), Direction.North),
+      AlignedEdge(NodeIndex(9), NodeIndex(11), Direction.North),
+      AlignedEdge(NodeIndex(10), NodeIndex(11), Direction.North),
     )
-  val graph                            = Graph.fromWeightedEdges(weightedEdges, 12).mkWeightedGraph;
-  val result                           = RectilinearLayout.tarjanHopcraft(graph)
+  val graph                          =
+    AlignedGraph.fromAlignedEdges(alignedEdges, 12).mkAlignedGraph;
+  val result                         = RectilinearLayout.tarjanHopcraft(graph)
   println("Done!");
 end main
 object RectilinearLayout:
@@ -36,7 +40,7 @@ object RectilinearLayout:
   def tarjanHopcraft(G: WeightedGraph): (Set[NodeIndex], Seq[Set[WeightedEdge]]) =
     var result: (Set[NodeIndex]) = (Set.empty)
     val visited                  = mutable.BitSet.empty
-    var nodeArray                = G.vertices.zipWithIndex
+    val nodeArray                = G.vertices.zipWithIndex
       .map((v, i) => BiNode(NodeIndex(i), Integer.MAX_VALUE, Integer.MAX_VALUE, v.neighbors.iterator))
 
     var allComponentEdges: Set[Set[WeightedEdge]] = Set.empty
@@ -126,14 +130,24 @@ object RectilinearLayout:
     * @param end
     * @return
     */
-  def traverseAlignedFace(graphWithAlignments: WeightedGraph, start: NodeIndex, end: NodeIndex): Iterator[NodeIndex] =
+  def traverseAlignedFace(
+      g: AlignedGraph,
+      start: NodeIndex,
+      orientation: Direction,
+      end: NodeIndex,
+  ): Iterator[NodeIndex] =
     new AbstractIterator[NodeIndex]:
-      private var current   = start
-      def hasNext           = current != end
-      def next(): NodeIndex =
-        val elem = current
-        current = NodeIndex(current.toInt + 1)
-        elem
+      private var current            = start
+      private var currentOrientation = orientation
+      def hasNext                    = current != end || g.vertices(current.toInt).neighbors.isEmpty
+      def next(): NodeIndex          =
+        val edgesSorted = g.vertices(current.toInt).neighbors.sortBy(l => l.direction.ordinal)
+        // TODO: Eventuell muss die invertierte Richtung verwendet werden
+        val nextLink    = (edgesSorted ++ edgesSorted).dropWhile(l => l.direction != currentOrientation).drop(1).iterator
+          .next()
+        current = nextLink.toNode
+        currentOrientation = nextLink.direction
+        current
   end traverseAlignedFace
 
 end RectilinearLayout
