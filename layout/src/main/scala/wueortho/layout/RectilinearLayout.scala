@@ -10,6 +10,10 @@ import scala.collection.AbstractIterator
 import wueortho.data.Direction
 import wueortho.data.AlignedEdge
 import wueortho.data.AlignedGraph
+import wueortho.data.AlignedEdge
+import wueortho.data.BasicGraph
+import wueortho.data.BasicLink
+import wueortho.data.AlignedLink
 
 @main def main() =
   val alignedEdges: Seq[AlignedEdge] =
@@ -35,26 +39,26 @@ import wueortho.data.AlignedGraph
 end main
 object RectilinearLayout:
 
-  case class BiNode(id: NodeIndex, var depth: Int, var lowpoint: Int, var edges: Iterator[WeightedLink])
+  case class BiNode(id: NodeIndex, var depth: Int, var lowpoint: Int, var edges: Iterator[AlignedLink])
 
-  def tarjanHopcraft(G: WeightedGraph): (Set[NodeIndex], Seq[Set[WeightedEdge]]) =
+  def tarjanHopcraft(G: AlignedGraph): (Set[NodeIndex], Seq[Set[AlignedEdge]]) =
     var result: (Set[NodeIndex]) = (Set.empty)
     val visited                  = mutable.BitSet.empty
     val nodeArray                = G.vertices.zipWithIndex
       .map((v, i) => BiNode(NodeIndex(i), Integer.MAX_VALUE, Integer.MAX_VALUE, v.neighbors.iterator))
 
-    var allComponentEdges: Set[Set[WeightedEdge]] = Set.empty
+    var allComponentEdges: Set[Set[AlignedEdge]] = Set.empty
 
     def add(
-        a: (Set[NodeIndex], Set[WeightedEdge]),
-        b: (Set[NodeIndex], Set[WeightedEdge]),
-    ): (Set[NodeIndex], Set[WeightedEdge]) =
+        a: (Set[NodeIndex], Set[AlignedEdge]),
+        b: (Set[NodeIndex], Set[AlignedEdge]),
+    ): (Set[NodeIndex], Set[AlignedEdge]) =
       (a._1.++(b._1), a._2.++(b._2))
 
-    def dfs(node: BiNode): (Set[NodeIndex], Set[WeightedEdge]) =
-      var res: (Set[NodeIndex], Set[WeightedEdge]) = (Set.empty, Set.empty)
+    def dfs(node: BiNode): (Set[NodeIndex], Set[AlignedEdge]) =
+      var res: (Set[NodeIndex], Set[AlignedEdge]) = (Set.empty, Set.empty)
 
-      var allBranches: Set[Set[WeightedEdge]] = Set.empty
+      var allBranches: Set[Set[AlignedEdge]] = Set.empty
 
       var isArticulation: Boolean = false;
       var counter                 = 0;
@@ -63,8 +67,10 @@ object RectilinearLayout:
       val outgoing                = node.edges.toSeq
 
       // TODO: Testen, ob hier wirklich alle Kanten zu bereits besuchen Knoten hinzugefügt werden
-      allBranches = allBranches
-        .++(outgoing.filter(e => visited.contains(e.toNode.toInt)).map(l => Set(WeightedEdge(node.id, l.toNode, 1.0))))
+      allBranches = allBranches.++(
+        outgoing.filter(e => visited.contains(e.toNode.toInt))
+          .map(l => Set(AlignedEdge(node.id, l.toNode, l.direction))),
+      )
 
       while (outgoing.exists(e => !visited.contains(e.toNode.toInt))) do
         counter = counter + 1;
@@ -72,16 +78,16 @@ object RectilinearLayout:
         node.lowpoint = node.lowpoint min outgoing.filter(e => visited.contains((e.toNode.toInt)))
           .map(e => nodeArray(e.toNode.toInt).depth).minOption.getOrElse(node.lowpoint)
         // skip all nodes, that were already visited
-        val newNeighbors              = outgoing.filter(e => !visited.contains(e.toNode.toInt)).iterator
-        val nextLink                  = newNeighbors.next()
-        val nextEdge                  = WeightedEdge(node.id, nextLink.toNode, 1.0)
-        val newNode                   = nodeArray(nextLink.toNode.toInt)
+        val newNeighbors             = outgoing.filter(e => !visited.contains(e.toNode.toInt)).iterator
+        val nextLink                 = newNeighbors.next()
+        val nextEdge                 = AlignedEdge(node.id, nextLink.toNode, nextLink.direction)
+        val newNode                  = nodeArray(nextLink.toNode.toInt)
         newNode.depth = node.depth + 1;
         newNode.lowpoint = node.depth + 1;
         newNode.edges = G.vertices(nextLink.toNode.toInt).neighbors.filter(e => e.toNode != node.id).iterator;
         res = add(res, dfs(newNode))
         // create edge set for current branch with rekursive edges
-        val branch: Set[WeightedEdge] = res._2.+(nextEdge)
+        val branch: Set[AlignedEdge] = res._2.+(nextEdge)
 
         if nodeArray(nextEdge.to.toInt).lowpoint >= node.depth then isArticulation = true
         node.lowpoint = node.lowpoint min newNode.lowpoint
@@ -92,7 +98,7 @@ object RectilinearLayout:
       node.lowpoint = node.lowpoint min (if outgoing.isEmpty then node.depth
                                          else outgoing.map(l => nodeArray(l.toNode.toInt).lowpoint).min)
 
-      var returnEdges: Set[WeightedEdge] = Set.empty
+      var returnEdges: Set[AlignedEdge] = Set.empty
 
       // for a non-root node: test, if current node v is cutVertex (has child y with lowpoint(y) >= depth(v))
       if node.depth > 0 && isArticulation then
