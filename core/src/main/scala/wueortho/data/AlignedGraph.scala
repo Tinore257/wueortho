@@ -1,5 +1,6 @@
 package wueortho.data
 import scala.collection.mutable
+import scala.collection.AbstractIterator
 
 // reverseIndex: Position in der Adjazenzliste der toNode, von dem Link zur aktuellen fromNode
 case class AlignedLink(toNode: NodeIndex, reverseIndex: Int, direction: Direction):
@@ -8,7 +9,10 @@ case class AlignedLink(toNode: NodeIndex, reverseIndex: Int, direction: Directio
 case class AlignedEdge(from: NodeIndex, to: NodeIndex, direction: Direction) derives CanEqual:
   def unalign = SimpleEdge(from, to)
 
-trait AlignedGraph extends Graph[AlignedLink, AlignedEdge]
+trait AlignedOps:
+  def traverseAlignedFace(start: NodeIndex, direction: Direction, end: NodeIndex, cw: Boolean): Iterator[NodeIndex]
+
+trait AlignedGraph extends Graph[AlignedLink, AlignedEdge], AlignedOps
 
 private def mkEdges[L, E](nodes: Seq[Vertex[L]], mk: (NodeIndex, L) => E, toBasicLink: L => BasicLink) = for
   (node, u) <- nodes.zipWithIndex
@@ -62,6 +66,7 @@ object AlignedGraph:
     edges.map(ex).foldLeft(bld)(_.addEdge.tupled(_))
     if size >= 0 then require(bld.size == size, s"node index was out of bounds [0, $size)")
     bld
+
 end AlignedGraph
 
 private case class AGImpl[Graph](
@@ -77,4 +82,46 @@ private case class AGImpl[Graph](
   override def vertices            = nodes
   override lazy val edges          =
     mkEdges(nodes, (u, l) => AlignedEdge(u, l.toNode, l.direction), _.unalign)
+
+  /** Returns a iterator to traverse along a face
+    *
+    * @param start
+    *   NodeIndex to start with
+    * @param direction
+    *   direction to start traversal
+    * @param end
+    *   NodeIndex to stop traversal
+    * @param cw
+    *   direction of traversal
+    * @return
+    */
+  def traverseAlignedFace(
+      start: NodeIndex,
+      direction: Direction,
+      end: NodeIndex,
+      cw: Boolean,
+  ): Iterator[NodeIndex] =
+    new AbstractIterator[NodeIndex]:
+      private var current          = start
+      private var currentDirection = direction
+      def hasNext                  = current != end || nodes(current.toInt).neighbors.isEmpty
+      def next(): NodeIndex        =
+
+        def getFirstExistingDir(node: NodeIndex, startDir: Direction, nextDir: Direction => Direction): Direction =
+          val currentDir = nextDir(startDir)
+          if nodes(node.toInt).neighbors.map(l => l.direction).contains(currentDir) then return currentDir
+          else getFirstExistingDir(node, currentDir, nextDir)
+
+        val getNextDir = cw match
+          case true  => Direction.turnCCW
+          case false => Direction.turnCW
+
+        val nextDir  = getFirstExistingDir(current, currentDirection, getNextDir)
+        val nextLink = nodes(current.toInt).neighbors.filter(l => l.direction == nextDir).last
+        current = nextLink.toNode
+        currentDirection = nextLink.direction
+        current
+      end next
+
+  end traverseAlignedFace
 end AGImpl

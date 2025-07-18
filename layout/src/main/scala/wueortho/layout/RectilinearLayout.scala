@@ -1,20 +1,12 @@
 package wueortho.layout
 
-import wueortho.data.{WeightedGraph}
-import scala.collection.mutable
-import wueortho.data.WeightedEdge
-import wueortho.data.NodeIndex
-import wueortho.data.Graph
-import wueortho.data.WeightedLink
-import scala.collection.AbstractIterator
-import wueortho.data.Direction
 import wueortho.data.AlignedEdge
 import wueortho.data.AlignedGraph
-import wueortho.data.AlignedEdge
-import wueortho.data.BasicGraph
-import wueortho.data.BasicLink
 import wueortho.data.AlignedLink
-import wueortho.layout.RectilinearLayout.traverseAlignedFace
+import wueortho.data.Direction
+import wueortho.data.NodeIndex
+
+import scala.collection.mutable
 
 @main def main() =
   val alignedEdges: Seq[AlignedEdge] =
@@ -33,12 +25,9 @@ import wueortho.layout.RectilinearLayout.traverseAlignedFace
 
   val startIndex = NodeIndex(0)
 
-  val faceIterator = traverseAlignedFace(graph, startIndex, Direction.West, NodeIndex(1), true);
+  val faceIterator = graph.traverseAlignedFace(startIndex, Direction.West, NodeIndex(1), true);
 
   val face = faceIterator.foldLeft(Seq(startIndex))(_ :+ _)
-
-  // var face: Seq[NodeIndex] = Seq.empty;
-  // while (faceIterator.hasNext) do face = face.appended(faceIterator.next())
 
   val result = RectilinearLayout.tarjanHopcraft(graph)
   println("Done!");
@@ -134,55 +123,5 @@ object RectilinearLayout:
 
     (result, allComponentEdges.toSeq)
   end tarjanHopcraft
-
-  /** Returns a iterator to traverse along a face
-    *
-    * @param graphWithAlignments
-    * @param start
-    * @param end
-    * @return
-    */
-  def traverseAlignedFace(
-      g: AlignedGraph,
-      start: NodeIndex,
-      direction: Direction,
-      end: NodeIndex,
-      cw: Boolean,
-  ): Iterator[NodeIndex] =
-    new AbstractIterator[NodeIndex]:
-      private var current          = start
-      private var currentDirection = direction
-      def hasNext                  = current != end || g.vertices(current.toInt).neighbors.isEmpty
-      def next(): NodeIndex        =
-
-        def getNextDirCW(dir: Direction) = dir match
-          case Direction.South => Direction.West
-          case Direction.West  => Direction.North
-          case Direction.North => Direction.East
-          case Direction.East  => Direction.South
-
-        def getNextDirCCW(dir: Direction) = dir match
-          case Direction.South => Direction.East
-          case Direction.East  => Direction.North
-          case Direction.North => Direction.West
-          case Direction.West  => Direction.South
-
-        def getFirstExistingDir(node: NodeIndex, startDir: Direction, nextDir: Direction => Direction): Direction =
-          val currentDir = nextDir(startDir)
-          if g.vertices(node.toInt).neighbors.map(l => l.direction).contains(currentDir) then return currentDir
-          else getFirstExistingDir(node, currentDir, nextDir)
-
-        val getNextDir = cw match
-          case true  => getNextDirCCW
-          case false => getNextDirCW
-
-        val nextDir  = getFirstExistingDir(current, currentDirection, getNextDir)
-        val nextLink = g.vertices(current.toInt).neighbors.filter(l => l.direction == nextDir).last
-        current = nextLink.toNode
-        currentDirection = nextLink.direction
-        current
-      end next
-
-  end traverseAlignedFace
 
 end RectilinearLayout
