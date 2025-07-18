@@ -30,7 +30,7 @@ class ABuilder private (
       adj(to.toInt) += ((from, adj(from.toInt).size - 1, orientation))
     else
       adj(from.toInt) += ((to, adj(to.toInt).size, orientation))
-      adj(to.toInt) += ((from, adj(from.toInt).size - 1, orientation))
+      adj(to.toInt) += ((from, adj(from.toInt).size - 1, orientation.reverse))
     this
   end addEdge
 
