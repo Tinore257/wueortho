@@ -26,15 +26,15 @@ class ABuilder private (
 ):
   private def ensureSize(i: Int) = if adj.size <= i then adj ++= Seq.fill(i - adj.size + 1)(mutable.ArrayBuffer.empty)
 
-  def addEdge(from: NodeIndex, to: NodeIndex, orientation: Direction): ABuilder =
+  def addEdge(from: NodeIndex, to: NodeIndex, direction: Direction): ABuilder =
 
     ensureSize(from.toInt max to.toInt)
     if from == to then // beware the loops
-      adj(from.toInt) += ((to, adj(from.toInt).size + 1, orientation))
-      adj(to.toInt) += ((from, adj(from.toInt).size - 1, orientation))
+      adj(from.toInt) += ((to, adj(from.toInt).size + 1, direction))
+      adj(to.toInt) += ((from, adj(from.toInt).size - 1, direction))
     else
-      adj(from.toInt) += ((to, adj(to.toInt).size, orientation))
-      adj(to.toInt) += ((from, adj(from.toInt).size - 1, orientation.reverse))
+      adj(from.toInt) += ((to, adj(to.toInt).size, direction))
+      adj(to.toInt) += ((from, adj(from.toInt).size - 1, direction.reverse))
     this
   end addEdge
 
@@ -113,10 +113,10 @@ private case class AGImpl[Graph](
           else getFirstExistingDir(node, currentDir, nextDir)
 
         val getNextDir = cw match
-          case true  => Direction.turnCCW
-          case false => Direction.turnCW
+          case true  => Direction.turnCW
+          case false => Direction.turnCCW
 
-        val nextDir  = getFirstExistingDir(current, currentDirection, getNextDir)
+        val nextDir  = getFirstExistingDir(current, currentDirection.reverse, getNextDir)
         val nextLink = nodes(current.toInt).neighbors.filter(l => l.direction == nextDir).last
         current = nextLink.toNode
         currentDirection = nextLink.direction
