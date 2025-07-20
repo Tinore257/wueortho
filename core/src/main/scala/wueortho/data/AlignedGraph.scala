@@ -12,7 +12,7 @@ case class AlignedEdge(from: NodeIndex, to: NodeIndex, direction: Direction) der
 
 trait AlignedOps:
   def traverseAlignedFace(start: NodeIndex, direction: Direction, end: NodeIndex, cw: Boolean): Iterator[NodeIndex]
-  def findLongPath(): Seq[AlignedEdge]
+  def findLongestPath(): Seq[NodeIndex]
 
 trait AlignedGraph extends Graph[AlignedLink, AlignedEdge], AlignedOps
 
@@ -127,21 +127,21 @@ private case class AGImpl[Graph](
 
   end traverseAlignedFace
 
-  def findLongPath(): Seq[AlignedEdge] =
-    val allDeg2Nodes = nodes.filter(n => n.neighbors.size == 2);
-    val allPathEdges = edges.filter(e => allDeg2Nodes.contains(e.from) && allDeg2Nodes.contains(e.to))
-    val allPaths     = allPathEdges.foldLeft(mutable.Set.empty: mutable.Set[mutable.Set[AlignedEdge]])((acc, e) =>
-      if acc.exists(l => l.exists(e1 => e1.from == e.from || e1.from == e.to || e1.to == e.from || e1.to == e.to))
-      then
-        acc.filter(l => l.exists(e1 => e1.from == e.from || e1.from == e.to || e1.to == e.from || e1.to == e.to))
-          .foreach(l => l.+=(e))
-        acc
+  def findLongestPath(): Seq[NodeIndex] =
+    val allDeg2Nodes                                  = nodes.zipWithIndex.filter((n, i) => n.neighbors.size == 2).map((n, i) => NodeIndex(i));
+    val allPathEdges                                  = edges.filter(e => allDeg2Nodes.contains(e.from) && allDeg2Nodes.contains(e.to))
+    val allPaths: mutable.Set[mutable.Set[NodeIndex]] = mutable.Set()
+    for v <- allDeg2Nodes do
+      val neigbors  = allPathEdges.filter(e => e.from == v || e.to == v).flatMap(e => Set(e.to, e.from)).filter(_ != v)
+      val setsWithV = allPaths.filter(l => l.contains(v) || neigbors.exists(n => l.contains(n)))
+      if setsWithV.size == 0 then allPaths.+=(mutable.Set(v))
+      else if setsWithV.size == 1 then setsWithV.last.+=(v)
       else
-        acc.+=(mutable.Set(e));
-        acc;,
-    )
+        allPaths.foreach(set => allPaths.remove(set))
+        allPaths.+=(setsWithV.reduce(_.union(_)))
+    end for
     allPaths.toSeq.sortBy(p => p.size).last.toSeq
 
-  end findLongPath
+  end findLongestPath
 
 end AGImpl
