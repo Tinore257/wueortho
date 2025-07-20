@@ -1,6 +1,7 @@
 package wueortho.data
 import scala.collection.mutable
 import scala.collection.AbstractIterator
+import wueortho.util.GraphConversions.all
 
 // reverseIndex: Position in der Adjazenzliste der toNode, von dem Link zur aktuellen fromNode
 case class AlignedLink(toNode: NodeIndex, reverseIndex: Int, direction: Direction):
@@ -11,6 +12,7 @@ case class AlignedEdge(from: NodeIndex, to: NodeIndex, direction: Direction) der
 
 trait AlignedOps:
   def traverseAlignedFace(start: NodeIndex, direction: Direction, end: NodeIndex, cw: Boolean): Iterator[NodeIndex]
+  def findLongPath(): Seq[AlignedEdge]
 
 trait AlignedGraph extends Graph[AlignedLink, AlignedEdge], AlignedOps
 
@@ -124,4 +126,22 @@ private case class AGImpl[Graph](
       end next
 
   end traverseAlignedFace
+
+  def findLongPath(): Seq[AlignedEdge] =
+    val allDeg2Nodes = nodes.filter(n => n.neighbors.size == 2);
+    val allPathEdges = edges.filter(e => allDeg2Nodes.contains(e.from) && allDeg2Nodes.contains(e.to))
+    val allPaths     = allPathEdges.foldLeft(mutable.Set.empty: mutable.Set[mutable.Set[AlignedEdge]])((acc, e) =>
+      if acc.exists(l => l.exists(e1 => e1.from == e.from || e1.from == e.to || e1.to == e.from || e1.to == e.to))
+      then
+        acc.filter(l => l.exists(e1 => e1.from == e.from || e1.from == e.to || e1.to == e.from || e1.to == e.to))
+          .foreach(l => l.+=(e))
+        acc
+      else
+        acc.+=(mutable.Set(e));
+        acc;,
+    )
+    allPaths.toSeq.sortBy(p => p.size).last.toSeq
+
+  end findLongPath
+
 end AGImpl
