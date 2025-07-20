@@ -14,22 +14,30 @@ import scala.collection.mutable
       AlignedEdge(NodeIndex(0), NodeIndex(1), Direction.East),
       AlignedEdge(NodeIndex(1), NodeIndex(2), Direction.East),
       AlignedEdge(NodeIndex(0), NodeIndex(4), Direction.South),
-      AlignedEdge(NodeIndex(1), NodeIndex(6), Direction.South),
+      AlignedEdge(NodeIndex(1), NodeIndex(7), Direction.South),
       AlignedEdge(NodeIndex(2), NodeIndex(3), Direction.South),
       AlignedEdge(NodeIndex(3), NodeIndex(4), Direction.West),
       AlignedEdge(NodeIndex(5), NodeIndex(4), Direction.North),
       AlignedEdge(NodeIndex(5), NodeIndex(6), Direction.East),
+      AlignedEdge(NodeIndex(7), NodeIndex(6), Direction.South),
+      AlignedEdge(NodeIndex(6), NodeIndex(8), Direction.East),
+      AlignedEdge(NodeIndex(8), NodeIndex(9), Direction.East),
+      AlignedEdge(NodeIndex(9), NodeIndex(10), Direction.North),
+      AlignedEdge(NodeIndex(10), NodeIndex(11), Direction.North),
+      AlignedEdge(NodeIndex(11), NodeIndex(2), Direction.West),
     )
   val graph                          =
     AlignedGraph.fromAlignedEdges(alignedEdges, 12).mkAlignedGraph;
 
-  val startIndex = NodeIndex(0)
+  val startIndex = NodeIndex(1)
 
-  val faceIterator = graph.traverseAlignedFace(startIndex, Direction.West, NodeIndex(1), true);
+  val faceIterator = graph.traverseAlignedFace(startIndex, Direction.East, NodeIndex(0), false);
 
   val face = faceIterator.foldLeft(Seq(startIndex))(_ :+ _)
 
-  val result = RectilinearLayout.tarjanHopcraft(graph)
+  val longestPath = graph.findLongestPath();
+  // Java > Scala
+  val result      = RectilinearLayout.tarjanHopcraft(graph)
   println("Done!");
 end main
 object RectilinearLayout:
@@ -72,7 +80,7 @@ object RectilinearLayout:
         // update lowpoint if visited neigbor has lower depth
         node.lowpoint = node.lowpoint min outgoing.filter(e => visited.contains((e.toNode.toInt)))
           .map(e => nodeArray(e.toNode.toInt).depth).minOption.getOrElse(node.lowpoint)
-        // skip all nodes, that were already visited
+        // skip all, nodes, that, were already, visited
         val newNeighbors             = outgoing.filter(e => !visited.contains(e.toNode.toInt)).iterator
         val nextLink                 = newNeighbors.next()
         val nextEdge                 = AlignedEdge(node.id, nextLink.toNode, nextLink.direction)
