@@ -10,8 +10,15 @@ case class AlignedLink(toNode: NodeIndex, reverseIndex: Int, direction: Directio
 case class AlignedEdge(from: NodeIndex, to: NodeIndex, direction: Direction) derives CanEqual:
   def unalign = SimpleEdge(from, to)
 
+case class SquarePath(path: Seq[NodeIndex], pathComplement: Seq[NodeIndex], sigma: Seq[NodeIndex])
+
 trait AlignedOps:
   def traverseAlignedFace(start: NodeIndex, direction: Direction, end: NodeIndex, cw: Boolean): Iterator[NodeIndex]
+  def getLongestPathAndSquare(): SquarePath
+
+  /** Calculates the longest sequence of degree 2 nodes in the graph
+    * @return
+    */
   def findLongestPath(): Seq[NodeIndex]
 
 trait AlignedGraph extends Graph[AlignedLink, AlignedEdge], AlignedOps
@@ -138,10 +145,22 @@ private case class AGImpl[Graph](
       else if setsWithV.size == 1 then setsWithV.last.+=(v)
       else
         allPaths.foreach(set => allPaths.remove(set))
-        allPaths.+=(setsWithV.reduce(_.union(_)))
+        allPaths.+=(setsWithV.reduce(_.union(_)).union(Set(v)))
     end for
     allPaths.toSeq.sortBy(p => p.size).last.toSeq
 
   end findLongestPath
+
+  def getLongestPathAndSquare(): SquarePath =
+    val longestPath        = findLongestPath();
+    val pathEndNodes       = longestPath.filter(v => vertices(v.toInt).neighbors.exists(l => !longestPath.contains(l.toNode)))
+    val lastPathNode       = pathEndNodes.last
+    // TODO: Sort path by walking along path
+    val notPathNeigbors    = vertices(lastPathNode.toInt).neighbors.filter(l => !longestPath.contains(l.toNode))
+    val firstEdgeDirection = notPathNeigbors.last.direction;
+    val pathComplement     = traverseAlignedFace(lastPathNode, firstEdgeDirection, pathEndNodes(0), true).toSeq;
+    val result             = SquarePath(longestPath, pathComplement, Seq.empty);
+    result
+  end getLongestPathAndSquare
 
 end AGImpl
