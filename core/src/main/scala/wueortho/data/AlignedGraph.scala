@@ -16,10 +16,29 @@ trait AlignedOps:
   def traverseAlignedFace(start: NodeIndex, direction: Direction, end: NodeIndex, cw: Boolean): Iterator[NodeIndex]
   def getLongestPathAndSquare(): SquarePath
 
+  /** applies exhaustively edge contraction to the path
+    *
+    * @param path
+    *   sequence of AlignedLinks in correct order
+    * @return
+    *   resulting path
+    */
+  def applyEdgeContraction(path: Seq[AlignedLink]): Seq[AlignedLink]
+
+  /** applies exhaustively vertex delection to the path
+    *
+    * @param path
+    *   sequence of AlignedLinks in correct order
+    * @return
+    *   resulting path
+    */
+  def applyVertexDeletion(path: Seq[AlignedLink]): Seq[AlignedLink]
+
   /** Calculates the longest sequence of degree 2 nodes in the graph
     * @return
     */
   def findLongestPath(): Seq[NodeIndex]
+end AlignedOps
 
 trait AlignedGraph extends Graph[AlignedLink, AlignedEdge], AlignedOps
 
@@ -162,5 +181,32 @@ private case class AGImpl[Graph](
     val result             = SquarePath(longestPath, pathComplement, Seq.empty);
     result
   end getLongestPathAndSquare
+
+  def applyEdgeContraction(path: Seq[AlignedLink]): Seq[AlignedLink] =
+    // TODO: deal with the wrap to the beginning
+    val candidate = path.sliding(3, 1).find(l =>
+      l(0).direction.isHorizontal && l(1).direction.isVertical && l(2).direction.isHorizontal ||
+        l(0).direction.isVertical && l(1).direction.isHorizontal && l(2).direction.isVertical,
+    )
+    // TODO: fix the links
+    if !candidate.isEmpty then applyEdgeContraction(path.filter(l => l.equals(candidate.get(1))))
+    else return path
+  end applyEdgeContraction
+
+  def applyVertexDeletion(path: Seq[AlignedLink]): Seq[AlignedLink] =
+    // TODO: deal with the wrap to the beginning
+    val candidate = path.sliding(2, 1).find(l => l(0).direction.isHorizontal == l(1).direction.isHorizontal)
+    if !candidate.isEmpty then
+      applyVertexDeletion(
+        path.map(l =>
+          // add skip-element
+          if l.toNode.equals(candidate.get(0).toNode) then
+            AlignedLink(candidate.get(1).toNode, l.reverseIndex, l.direction)
+          else l,
+        ).filter(l => !candidate.contains(l)),
+      )
+    else path
+    end if
+  end applyVertexDeletion
 
 end AGImpl
