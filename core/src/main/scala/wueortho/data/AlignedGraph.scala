@@ -2,6 +2,7 @@ package wueortho.data
 import scala.collection.mutable
 import scala.collection.AbstractIterator
 import wueortho.util.GraphConversions.all
+import scala.compiletime.ops.long
 
 // reverseIndex: Position in der Adjazenzliste der toNode, von dem Link zur aktuellen fromNode
 case class AlignedLink(toNode: NodeIndex, reverseIndex: Int, direction: Direction):
@@ -15,6 +16,7 @@ case class SquarePath(path: Seq[NodeIndex], pathComplement: Seq[NodeIndex], sigm
 trait AlignedOps:
   def traverseAlignedFace(start: NodeIndex, direction: Direction, end: NodeIndex, cw: Boolean): Iterator[NodeIndex]
   def getLongestPathAndSquare(): SquarePath
+  def applySimplifications(path: Seq[AlignedLink]): Seq[AlignedLink]
 
   /** applies exhaustively edge contraction to the path
     *
@@ -166,21 +168,45 @@ private case class AGImpl[Graph](
         allPaths.foreach(set => allPaths.remove(set))
         allPaths.+=(setsWithV.reduce(_.union(_)).union(Set(v)))
     end for
-    allPaths.toSeq.sortBy(p => p.size).last.toSeq
-
+    if allPaths.isEmpty then sys.error("no path/chain was found!")
+    val longest = allPaths.toSeq.sortBy(p => p.size).last.toSeq
+    val pathEndNodes = longest.filter(v => vertices(v.toInt).neighbors.exists(l => !longest.contains(l.toNode)))
+    var sorted       = if pathEndNodes.length > 0 then mutable.Seq(pathEndNodes(0)) else mutable.Seq.empty
+    for v <- longest do
+      sorted = sorted.appended(
+        vertices(sorted.last.toInt).neighbors.map(_.toNode).filter(v => !sorted.contains(v)).last,
+      )
+    end for
+    sorted.toSeq
   end findLongestPath
 
   def getLongestPathAndSquare(): SquarePath =
-    val longestPath        = findLongestPath();
-    val pathEndNodes       = longestPath.filter(v => vertices(v.toInt).neighbors.exists(l => !longestPath.contains(l.toNode)))
-    val lastPathNode       = pathEndNodes.last
-    // TODO: Sort path by walking along path
-    val notPathNeigbors    = vertices(lastPathNode.toInt).neighbors.filter(l => !longestPath.contains(l.toNode))
-    val firstEdgeDirection = notPathNeigbors.last.direction;
-    val pathComplement     = traverseAlignedFace(lastPathNode, firstEdgeDirection, pathEndNodes(0), true).toSeq;
-    val result             = SquarePath(longestPath, pathComplement, Seq.empty);
+    val longestPath         = findLongestPath();
+    val pathEndNodes        = longestPath.filter(v => vertices(v.toInt).neighbors.exists(l => !longestPath.contains(l.toNode)))
+    val lastPathNode        = pathEndNodes.last
+    val notPathNeigbors     = vertices(lastPathNode.toInt).neighbors.filter(l => !longestPath.contains(l.toNode))
+    val firstEdgeDirection  = notPathNeigbors.last.direction;
+    val pathComplement      = traverseAlignedFace(lastPathNode, firstEdgeDirection, pathEndNodes(0), true).toSeq.reverse
+      .drop(1).reverse;
+    val completeSquareNodes = longestPath.++(pathComplement)
+    val completeSquarePath  = completeSquareNodes.sliding(2, 1).map(l =>
+      val nei = vertices(l(0).toInt).neighbors
+      nei.find(link => link.toNode == l(1)).get,
+    ).toSeq
+    val square              = applySimplifications(completeSquarePath)
+    val result              = SquarePath(longestPath, pathComplement, Seq.empty);
     result
   end getLongestPathAndSquare
+
+  def applySimplifications(path: Seq[AlignedLink]): Seq[AlignedLink] =
+    var lastLength  = path.length + 1
+    var currentPath = path
+    while (currentPath.length != lastLength) do
+      lastLength = currentPath.length
+      currentPath = applyVertexDeletion(applyEdgeContraction(currentPath))
+    end while
+    currentPath
+  end applySimplifications
 
   def applyEdgeContraction(path: Seq[AlignedLink]): Seq[AlignedLink] =
     // TODO: deal with the wrap to the beginning
@@ -189,7 +215,14 @@ private case class AGImpl[Graph](
         l(0).direction.isVertical && l(1).direction.isHorizontal && l(2).direction.isVertical,
     )
     // TODO: fix the links
-    if !candidate.isEmpty then applyEdgeContraction(path.filter(l => l.equals(candidate.get(1))))
+    if !candidate.isEmpty then
+      applyEdgeContraction(
+        path.map(l =>
+          if l.toNode.equals(candidate.get(1).toNode) then
+            AlignedLink(candidate.get(1).toNode, l.reverseIndex, candidate.get(2).direction)
+          else l,
+        ),
+      ).filter(l => l.equals(candidate.get(1)) || l.equals(candidate.get(2)))
     else return path
   end applyEdgeContraction
 
@@ -203,6 +236,7 @@ private case class AGImpl[Graph](
           if l.toNode.equals(candidate.get(0).toNode) then
             AlignedLink(candidate.get(1).toNode, l.reverseIndex, l.direction)
           else l,
+          // filter original elements
         ).filter(l => !candidate.contains(l)),
       )
     else path
