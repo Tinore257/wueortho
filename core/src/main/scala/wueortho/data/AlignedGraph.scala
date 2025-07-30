@@ -11,35 +11,35 @@ case class AlignedLink(toNode: NodeIndex, reverseIndex: Int, direction: Directio
 case class AlignedEdge(from: NodeIndex, to: NodeIndex, direction: Direction) derives CanEqual:
   def unalign = SimpleEdge(from, to)
 
-case class SquarePath(path: Seq[NodeIndex], pathComplement: Seq[NodeIndex], sigma: Seq[NodeIndex])
+case class SquareChain(chain: Seq[NodeIndex], chainComplement: Seq[NodeIndex], sigma: Seq[NodeIndex])
 
 trait AlignedOps:
   def traverseAlignedFace(start: NodeIndex, direction: Direction, end: NodeIndex, cw: Boolean): Iterator[NodeIndex]
-  def getLongestPathAndSquare(): SquarePath
-  def applySimplifications(path: Seq[AlignedLink]): Seq[AlignedLink]
+  def getLongestChainAndSquare(): SquareChain
+  def applySimplifications(chain: Seq[AlignedLink]): Seq[AlignedLink]
 
-  /** applies exhaustively edge contraction to the path
+  /** applies exhaustively edge contraction to the chain
     *
-    * @param path
+    * @param chain
     *   sequence of AlignedLinks in correct order
     * @return
-    *   resulting path
+    *   resulting chain
     */
-  def applyEdgeContraction(path: Seq[AlignedLink]): Seq[AlignedLink]
+  def applyEdgeContraction(chain: Seq[AlignedLink]): Seq[AlignedLink]
 
-  /** applies exhaustively vertex delection to the path
+  /** applies exhaustively vertex delection to the chain
     *
-    * @param path
+    * @param chain
     *   sequence of AlignedLinks in correct order
     * @return
-    *   resulting path
+    *   resulting chain
     */
-  def applyVertexDeletion(path: Seq[AlignedLink]): Seq[AlignedLink]
+  def applyVertexDeletion(chain: Seq[AlignedLink]): Seq[AlignedLink]
 
   /** Calculates the longest sequence of degree 2 nodes in the graph
     * @return
     */
-  def findLongestPath(): Seq[NodeIndex]
+  def findLongestChain(): Seq[NodeIndex]
 end AlignedOps
 
 trait AlignedGraph extends Graph[AlignedLink, AlignedEdge], AlignedOps
@@ -155,62 +155,63 @@ private case class AGImpl[Graph](
 
   end traverseAlignedFace
 
-  def findLongestPath(): Seq[NodeIndex] =
-    val allDeg2Nodes                                  = nodes.zipWithIndex.filter((n, i) => n.neighbors.size == 2).map((n, i) => NodeIndex(i));
-    val allPathEdges                                  = edges.filter(e => allDeg2Nodes.contains(e.from) && allDeg2Nodes.contains(e.to))
-    val allPaths: mutable.Set[mutable.Set[NodeIndex]] = mutable.Set()
+  def findLongestChain(): Seq[NodeIndex] =
+    val allDeg2Nodes                                   = nodes.zipWithIndex.filter((n, i) => n.neighbors.size == 2).map((n, i) => NodeIndex(i));
+    val allChainEdges                                  = edges.filter(e => allDeg2Nodes.contains(e.from) && allDeg2Nodes.contains(e.to))
+    val allChains: mutable.Set[mutable.Set[NodeIndex]] = mutable.Set()
     for v <- allDeg2Nodes do
-      val neigbors  = allPathEdges.filter(e => e.from == v || e.to == v).flatMap(e => Set(e.to, e.from)).filter(_ != v)
-      val setsWithV = allPaths.filter(l => l.contains(v) || neigbors.exists(n => l.contains(n)))
-      if setsWithV.size == 0 then allPaths.+=(mutable.Set(v))
+      val neigbors  = allChainEdges.filter(e => e.from == v || e.to == v).flatMap(e => Set(e.to, e.from)).filter(_ != v)
+      val setsWithV = allChains.filter(l => l.contains(v) || neigbors.exists(n => l.contains(n)))
+      if setsWithV.size == 0 then allChains.+=(mutable.Set(v))
       else if setsWithV.size == 1 then setsWithV.last.+=(v)
       else
-        allPaths.foreach(set => allPaths.remove(set))
-        allPaths.+=(setsWithV.reduce(_.union(_)).union(Set(v)))
+        allChains.foreach(set => allChains.remove(set))
+        allChains.+=(setsWithV.reduce(_.union(_)).union(Set(v)))
     end for
-    if allPaths.isEmpty then sys.error("no path/chain was found!")
-    val longest = allPaths.toSeq.sortBy(p => p.size).last.toSeq
-    val pathEndNodes = longest.filter(v => vertices(v.toInt).neighbors.exists(l => !longest.contains(l.toNode)))
-    var sorted       = if pathEndNodes.length > 0 then mutable.Seq(pathEndNodes(0)) else mutable.Seq.empty
+    if allChains.isEmpty then sys.error("no chain was found!")
+    val longest = allChains.toSeq.sortBy(p => p.size).last.toSeq
+    val chainEndNodes = longest.filter(v => vertices(v.toInt).neighbors.exists(l => !longest.contains(l.toNode)))
+    var sorted        = if chainEndNodes.length > 0 then mutable.Seq(chainEndNodes(0)) else mutable.Seq.empty
     for v <- longest do
       sorted = sorted.appendedAll(
         vertices(sorted.last.toInt).neighbors.map(_.toNode).filter(n => !sorted.contains(n) && longest.contains(n)),
       )
     end for
     sorted.toSeq
-  end findLongestPath
+  end findLongestChain
 
-  def getLongestPathAndSquare(): SquarePath =
-    val longestPath         = findLongestPath();
-    val pathEndNodes        = longestPath.filter(v => vertices(v.toInt).neighbors.exists(l => !longestPath.contains(l.toNode)))
-    val lastPathNode        = pathEndNodes.last
-    val notPathNeigbors     = vertices(lastPathNode.toInt).neighbors.filter(l => !longestPath.contains(l.toNode))
-    val firstEdgeDirection  = notPathNeigbors.last.direction;
-    val pathComplement      = traverseAlignedFace(lastPathNode, firstEdgeDirection, pathEndNodes(0), true).toSeq.reverse
+  def getLongestChainAndSquare(): SquareChain =
+    val longestChain        = findLongestChain();
+    val chainEndNodes       = longestChain
+      .filter(v => vertices(v.toInt).neighbors.exists(l => !longestChain.contains(l.toNode)))
+    val lastChainNode       = chainEndNodes.last
+    val notChainNeigbors    = vertices(lastChainNode.toInt).neighbors.filter(l => !longestChain.contains(l.toNode))
+    val firstEdgeDirection  = notChainNeigbors.last.direction;
+    val chainComplement     = traverseAlignedFace(lastChainNode, firstEdgeDirection, chainEndNodes(0), true).toSeq.reverse
       .drop(1).reverse;
-    val completeSquareNodes = longestPath.++(pathComplement)
-    val completeSquarePath  = completeSquareNodes.appended(longestPath(0)).sliding(2, 1).map(l =>
+    val completeSquareNodes = longestChain.++(chainComplement)
+    val completeSquareChain = completeSquareNodes.appended(longestChain(0)).sliding(2, 1).map(l =>
       val nei = vertices(l(0).toInt).neighbors
       nei.find(link => link.toNode == l(1)).get,
     ).toSeq
-    val square              = applySimplifications(completeSquarePath)
-    val result              = SquarePath(longestPath, pathComplement, square.map(_.toNode));
+    val square              = applySimplifications(completeSquareChain)
+    val result              = SquareChain(longestChain, chainComplement, square.map(_.toNode));
     result
-  end getLongestPathAndSquare
+  end getLongestChainAndSquare
 
-  def applySimplifications(path: Seq[AlignedLink]): Seq[AlignedLink] =
-    var lastLength  = path.length + 1
-    var currentPath = path
-    while (currentPath.length != lastLength) do
-      lastLength = currentPath.length
-      currentPath = applyVertexDeletion(applyEdgeContraction(currentPath))
+  def applySimplifications(chain: Seq[AlignedLink]): Seq[AlignedLink] =
+    var lastLength   = chain.length + 1
+    var currentChain = chain
+    while (currentChain.length != lastLength) do
+      lastLength = currentChain.length
+      currentChain = applyVertexDeletion(applyEdgeContraction(currentChain))
     end while
-    currentPath
+    currentChain
   end applySimplifications
 
-  def applyEdgeContraction(path: Seq[AlignedLink]): Seq[AlignedLink] =
-    if path.length < 3 then return path
-    val candidate = path.appendedAll(path.slice(0, 2)).sliding(3, 1).find(l =>
+  def applyEdgeContraction(chain: Seq[AlignedLink]): Seq[AlignedLink] =
+    if chain.length < 3 then return chain
+    val candidate = chain.appendedAll(chain.slice(0, 2)).sliding(3, 1).find(l =>
       l(0).direction.isHorizontal && l(1).direction.isVertical && l(2).direction.isHorizontal && l(0).direction == l(2)
         .direction ||
         l(0).direction.isVertical && l(1).direction.isHorizontal && l(2).direction.isVertical && l(0).direction == l(2)
@@ -219,18 +220,18 @@ private case class AGImpl[Graph](
     // TODO: fix the links
     if !candidate.isEmpty then
       applyEdgeContraction(
-        path.map(l =>
+        chain.map(l =>
           if l.toNode.equals(candidate.get(1).toNode) then
             AlignedLink(candidate.get(1).toNode, l.reverseIndex, candidate.get(2).direction)
           else l,
         ),
       ).filter(l => l.equals(candidate.get(1)) || l.equals(candidate.get(2)))
-    else return path
+    else return chain
   end applyEdgeContraction
 
-  def applyVertexDeletion(path: Seq[AlignedLink]): Seq[AlignedLink] =
-    if path.length < 3 then return path
-    val withWrapAround = path.appendedAll(path.slice(0, 1))
+  def applyVertexDeletion(chain: Seq[AlignedLink]): Seq[AlignedLink] =
+    if chain.length < 3 then return chain
+    val withWrapAround = chain.appendedAll(chain.slice(0, 1))
     val candidate      = withWrapAround.sliding(2, 1)
       .find(l => l.size == 2 && l(0).direction.isHorizontal == l(1).direction.isHorizontal)
     if !candidate.isEmpty then
@@ -241,7 +242,7 @@ private case class AGImpl[Graph](
       ).toSeq
       // filter original elements
       applyVertexDeletion(withReplacedElement)
-    else path
+    else chain
     end if
   end applyVertexDeletion
 
