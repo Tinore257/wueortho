@@ -173,8 +173,8 @@ private case class AGImpl[Graph](
     val pathEndNodes = longest.filter(v => vertices(v.toInt).neighbors.exists(l => !longest.contains(l.toNode)))
     var sorted       = if pathEndNodes.length > 0 then mutable.Seq(pathEndNodes(0)) else mutable.Seq.empty
     for v <- longest do
-      sorted = sorted.appended(
-        vertices(sorted.last.toInt).neighbors.map(_.toNode).filter(v => !sorted.contains(v)).last,
+      sorted = sorted.appendedAll(
+        vertices(sorted.last.toInt).neighbors.map(_.toNode).filter(n => !sorted.contains(n) && longest.contains(n)),
       )
     end for
     sorted.toSeq
@@ -189,12 +189,12 @@ private case class AGImpl[Graph](
     val pathComplement      = traverseAlignedFace(lastPathNode, firstEdgeDirection, pathEndNodes(0), true).toSeq.reverse
       .drop(1).reverse;
     val completeSquareNodes = longestPath.++(pathComplement)
-    val completeSquarePath  = completeSquareNodes.sliding(2, 1).map(l =>
+    val completeSquarePath  = completeSquareNodes.appended(longestPath(0)).sliding(2, 1).map(l =>
       val nei = vertices(l(0).toInt).neighbors
       nei.find(link => link.toNode == l(1)).get,
     ).toSeq
     val square              = applySimplifications(completeSquarePath)
-    val result              = SquarePath(longestPath, pathComplement, Seq.empty);
+    val result              = SquarePath(longestPath, pathComplement, square.map(_.toNode));
     result
   end getLongestPathAndSquare
 
@@ -209,10 +209,12 @@ private case class AGImpl[Graph](
   end applySimplifications
 
   def applyEdgeContraction(path: Seq[AlignedLink]): Seq[AlignedLink] =
-    // TODO: deal with the wrap to the beginning
-    val candidate = path.sliding(3, 1).find(l =>
-      l(0).direction.isHorizontal && l(1).direction.isVertical && l(2).direction.isHorizontal ||
-        l(0).direction.isVertical && l(1).direction.isHorizontal && l(2).direction.isVertical,
+    if path.length < 3 then return path
+    val candidate = path.appendedAll(path.slice(0, 2)).sliding(3, 1).find(l =>
+      l(0).direction.isHorizontal && l(1).direction.isVertical && l(2).direction.isHorizontal && l(0).direction == l(2)
+        .direction ||
+        l(0).direction.isVertical && l(1).direction.isHorizontal && l(2).direction.isVertical && l(0).direction == l(2)
+          .direction,
     )
     // TODO: fix the links
     if !candidate.isEmpty then
@@ -227,18 +229,18 @@ private case class AGImpl[Graph](
   end applyEdgeContraction
 
   def applyVertexDeletion(path: Seq[AlignedLink]): Seq[AlignedLink] =
-    // TODO: deal with the wrap to the beginning
-    val candidate = path.sliding(2, 1).find(l => l(0).direction.isHorizontal == l(1).direction.isHorizontal)
+    if path.length < 3 then return path
+    val withWrapAround = path.appendedAll(path.slice(0, 1))
+    val candidate      = withWrapAround.sliding(2, 1)
+      .find(l => l.size == 2 && l(0).direction.isHorizontal == l(1).direction.isHorizontal)
     if !candidate.isEmpty then
-      applyVertexDeletion(
-        path.map(l =>
-          // add skip-element
-          if l.toNode.equals(candidate.get(0).toNode) then
-            AlignedLink(candidate.get(1).toNode, l.reverseIndex, l.direction)
-          else l,
-          // filter original elements
-        ).filter(l => !candidate.contains(l)),
-      )
+      val withReplacedElement = withWrapAround.sliding(2, 1).flatMap(l =>
+        if l.equals(candidate.get) then Seq(AlignedLink(candidate.get(1).toNode, l(0).reverseIndex, l(0).direction))
+        else if l(0).equals(candidate.get(1)) then Seq.empty
+        else Seq(l(0)),
+      ).toSeq
+      // filter original elements
+      applyVertexDeletion(withReplacedElement)
     else path
     end if
   end applyVertexDeletion
