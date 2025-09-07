@@ -8,15 +8,15 @@ import wueortho.data.NodeIndex
 
 import scala.collection.mutable
 
-@main def main() =
+def exampleGraph1(): AlignedGraph =
   val alignedEdges: Seq[AlignedEdge] =
     Seq(
       AlignedEdge(NodeIndex(0), NodeIndex(1), Direction.East),
       AlignedEdge(NodeIndex(1), NodeIndex(2), Direction.East),
       AlignedEdge(NodeIndex(0), NodeIndex(4), Direction.South),
       AlignedEdge(NodeIndex(1), NodeIndex(7), Direction.South),
-      AlignedEdge(NodeIndex(2), NodeIndex(3), Direction.South),
-      AlignedEdge(NodeIndex(3), NodeIndex(4), Direction.West),
+      // AlignedEdge(NodeIndex(2), NodeIndex(3), Direction.South),
+      // AlignedEdge(NodeIndex(3), NodeIndex(4), Direction.West),
       AlignedEdge(NodeIndex(5), NodeIndex(4), Direction.North),
       AlignedEdge(NodeIndex(5), NodeIndex(6), Direction.East),
       AlignedEdge(NodeIndex(7), NodeIndex(6), Direction.South),
@@ -27,7 +27,73 @@ import scala.collection.mutable
       AlignedEdge(NodeIndex(11), NodeIndex(2), Direction.West),
     )
   val graph                          =
-    AlignedGraph.fromAlignedEdges(alignedEdges, 12).mkAlignedGraph;
+    AlignedGraph.fromAlignedEdges(alignedEdges, alignedEdges.map(e => e.from.toInt max e.to.toInt).max + 1)
+      .mkAlignedGraph;
+  graph
+end exampleGraph1
+
+def exampleGraph2(): AlignedGraph =
+  val alignedEdges: Seq[AlignedEdge] =
+    Seq(
+      AlignedEdge(NodeIndex(0), NodeIndex(1), Direction.East),
+      AlignedEdge(NodeIndex(1), NodeIndex(2), Direction.East),
+      AlignedEdge(NodeIndex(2), NodeIndex(3), Direction.East),
+      AlignedEdge(NodeIndex(1), NodeIndex(4), Direction.South),
+      AlignedEdge(NodeIndex(2), NodeIndex(5), Direction.South),
+      AlignedEdge(NodeIndex(4), NodeIndex(5), Direction.East),
+      AlignedEdge(NodeIndex(0), NodeIndex(11), Direction.South),
+      AlignedEdge(NodeIndex(3), NodeIndex(14), Direction.South),
+      // AlignedEdge(NodeIndex(2), NodeIndex(3), Direction.South),
+      // AlignedEdge(NodeIndex(3), NodeIndex(4), Direction.West),
+      AlignedEdge(NodeIndex(5), NodeIndex(8), Direction.South),
+      AlignedEdge(NodeIndex(8), NodeIndex(7), Direction.West),
+      AlignedEdge(NodeIndex(7), NodeIndex(6), Direction.West),
+      AlignedEdge(NodeIndex(6), NodeIndex(9), Direction.South),
+      AlignedEdge(NodeIndex(9), NodeIndex(10), Direction.East),
+      AlignedEdge(NodeIndex(9), NodeIndex(12), Direction.South),
+      AlignedEdge(NodeIndex(10), NodeIndex(13), Direction.South),
+      AlignedEdge(NodeIndex(11), NodeIndex(12), Direction.East),
+      AlignedEdge(NodeIndex(12), NodeIndex(13), Direction.East),
+      AlignedEdge(NodeIndex(13), NodeIndex(14), Direction.East),
+    )
+  val graph                          =
+    AlignedGraph.fromAlignedEdges(alignedEdges, alignedEdges.map(e => e.from.toInt max e.to.toInt).max + 1)
+      .mkAlignedGraph;
+  graph
+end exampleGraph2
+
+def exampleGraph3(): AlignedGraph =
+  val alignedEdges: Seq[AlignedEdge] =
+    Seq(
+      AlignedEdge(NodeIndex(0), NodeIndex(1), Direction.East),
+      AlignedEdge(NodeIndex(1), NodeIndex(2), Direction.East),
+      AlignedEdge(NodeIndex(2), NodeIndex(3), Direction.East),
+      AlignedEdge(NodeIndex(1), NodeIndex(4), Direction.South),
+      AlignedEdge(NodeIndex(2), NodeIndex(5), Direction.South),
+      AlignedEdge(NodeIndex(4), NodeIndex(5), Direction.East),
+      AlignedEdge(NodeIndex(0), NodeIndex(11), Direction.South),
+      AlignedEdge(NodeIndex(3), NodeIndex(14), Direction.South),
+      // AlignedEdge(NodeIndex(2), NodeIndex(3), Direction.South),
+      // AlignedEdge(NodeIndex(3), NodeIndex(4), Direction.West),
+      AlignedEdge(NodeIndex(4), NodeIndex(8), Direction.South),
+      AlignedEdge(NodeIndex(8), NodeIndex(7), Direction.East),
+      AlignedEdge(NodeIndex(7), NodeIndex(6), Direction.East),
+      AlignedEdge(NodeIndex(6), NodeIndex(10), Direction.South),
+      AlignedEdge(NodeIndex(9), NodeIndex(10), Direction.East),
+      AlignedEdge(NodeIndex(9), NodeIndex(12), Direction.South),
+      AlignedEdge(NodeIndex(10), NodeIndex(13), Direction.South),
+      AlignedEdge(NodeIndex(11), NodeIndex(12), Direction.East),
+      AlignedEdge(NodeIndex(12), NodeIndex(13), Direction.East),
+      AlignedEdge(NodeIndex(13), NodeIndex(14), Direction.East),
+    )
+  val graph                          =
+    AlignedGraph.fromAlignedEdges(alignedEdges, alignedEdges.map(e => e.from.toInt max e.to.toInt).max + 1)
+      .mkAlignedGraph;
+  graph
+end exampleGraph3
+
+@main def main() =
+  val graph = exampleGraph3();
 
   val startIndex = NodeIndex(1)
 
@@ -35,9 +101,14 @@ import scala.collection.mutable
 
   val face = faceIterator.foldLeft(Seq(startIndex))(_ :+ _)
 
-  val longestPath = graph.findLongestPath();
+  val longestPath = graph.findLongestChain(); // hallo kolla
   // Java > Scala
-  val result      = RectilinearLayout.tarjanHopcraft(graph)
+
+  val square = graph.getLongestChainAndSquare();
+
+  val b = graph.findChainInEmbedding(square);
+
+  val result = RectilinearLayout.tarjanHopcraft(graph)
   println("Done!");
 end main
 object RectilinearLayout:
