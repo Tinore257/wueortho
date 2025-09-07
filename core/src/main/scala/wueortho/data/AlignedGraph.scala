@@ -40,6 +40,13 @@ trait AlignedOps:
     * @return
     */
   def findLongestChain(): Seq[NodeIndex]
+
+  /** gets a path that starts and ends in the same direction as p that simplifies to sigma
+    * @param pathAndSquare
+    * @return
+    */
+  def findChainInEmbedding(pathAndSquare: SquareChain): Seq[AlignedLink]
+
 end AlignedOps
 
 trait AlignedGraph extends Graph[AlignedLink, AlignedEdge], AlignedOps
@@ -187,8 +194,14 @@ private case class AGImpl[Graph](
     val lastChainNode       = chainEndNodes.last
     val notChainNeigbors    = vertices(lastChainNode.toInt).neighbors.filter(l => !longestChain.contains(l.toNode))
     val firstEdgeDirection  = notChainNeigbors.last.direction;
-    val chainComplement     = traverseAlignedFace(lastChainNode, firstEdgeDirection, chainEndNodes(0), true).toSeq.reverse
-      .drop(1).reverse;
+    val chainComplement     = Seq(notChainNeigbors(0).toNode).++(
+      traverseAlignedFace(
+        notChainNeigbors(0).toNode,
+        firstEdgeDirection,
+        chainEndNodes(0),
+        true,
+      ).toSeq.reverse.drop(1).reverse,
+    );
     val completeSquareNodes = longestChain.++(chainComplement)
     val completeSquareChain = completeSquareNodes.appended(longestChain(0)).sliding(2, 1).map(l =>
       val nei = vertices(l(0).toInt).neighbors
@@ -219,14 +232,16 @@ private case class AGImpl[Graph](
     )
     // TODO: fix the links
     if !candidate.isEmpty then
-      applyEdgeContraction(
-        chain.map(l =>
-          if l.toNode.equals(candidate.get(1).toNode) then
-            AlignedLink(candidate.get(1).toNode, l.reverseIndex, candidate.get(2).direction)
-          else l,
-        ),
-      ).filter(l => l.equals(candidate.get(1)) || l.equals(candidate.get(2)))
+      val newLinks = chain.filter(!_.toNode.equals(candidate.get(1).toNode)).map(l =>
+        if l.toNode.equals(candidate.get(0).toNode) then
+          AlignedLink(candidate.get(1).toNode, l.reverseIndex, candidate.get(2).direction)
+        else l,
+      )
+      return applyEdgeContraction(
+        newLinks,
+      ) // .filter(l => l.equals(candidate.get(1)) || l.equals(candidate.get(2)))
     else return chain
+    end if
   end applyEdgeContraction
 
   def applyVertexDeletion(chain: Seq[AlignedLink]): Seq[AlignedLink] =
@@ -245,5 +260,29 @@ private case class AGImpl[Graph](
     else chain
     end if
   end applyVertexDeletion
+
+  def findChainInEmbedding(pathAndSquare: SquareChain): Seq[AlignedLink] =
+    var res: mutable.Seq[AlignedLink] = mutable.Seq.empty
+    if pathAndSquare.chain.length < 1 then return Seq.empty
+    val startNeigbors                 = vertices(pathAndSquare.chainComplement.last.toInt).neighbors
+    val startLink                     = startNeigbors.filter(l => l.toNode == pathAndSquare.chain(0))
+    val startDir                      = startLink.map(_.direction).reverse.last
+    val endNeigbors                   = vertices(pathAndSquare.chain.last.toInt).neighbors
+    val endLink                       = endNeigbors.filter(l => l.toNode == pathAndSquare.chainComplement(0))
+    val endDir                        = endLink.map(_.direction).reverse.last
+    val complementLinks               = pathAndSquare.chainComplement.reverse.sliding(2, 1)
+      .map(l => vertices(l(0).toInt).neighbors.filter(_.toNode == l(1)).last).toSeq
+    res = res.appended(startLink(0))
+    // TODO: im FaceIterator nachschauen, dass es auch immer passt (also der Pfad immer CCW ist)
+    while complementLinks(0).direction != res.last.direction.turnCCW do
+      res = res.appended(AlignedLink(NodeIndex(vertices.length + res.length - 1), 0, res.last.direction.turnCCW))
+    end while
+    res = res.appendedAll(complementLinks)
+    while endDir != res.last.direction.turnCCW do
+      res = res.appended(AlignedLink(NodeIndex(vertices.length + res.length - 1), 1, res.last.direction.turnCCW))
+    end while
+    res = res.appended(endLink(0))
+    return res.toSeq
+  end findChainInEmbedding
 
 end AGImpl
