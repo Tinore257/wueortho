@@ -19,6 +19,7 @@ import wueortho.util.mutable.LinearIntervalTree.Interval
 import wueortho.util.mutable.LinearIntervalTree
 import scala.collection.mutable.ArrayBuffer
 import scala.compiletime.ops.double
+import wueortho.routing.OrthogonalVisibilityGraph.neighbor
 
 object GreedyOrthogonalization:
 
@@ -242,114 +243,53 @@ object GreedyOrthogonalization:
     /** gets all orthogonal (to direction) disjoint sets that are inside or part of a face consistinig of only aligned
       * edges
       */
-    def getAllSetsPerFace(graph: WeightedDiGraph, dir: Direction): Seq[Set[NodeIndex]] =
+    def getAllSetsPerFace(graph: WeightedDiGraph): Seq[Set[NodeIndex]] =
 
-      def getSlope(a: NodeIndex, b: NodeIndex, dir: Direction) = dir match
-        case Direction.West  => (pos(b.toInt).x2 - pos(a.toInt).x2) / (pos(b.toInt).x1 - pos(a.toInt).x1)
-        case Direction.East  => (pos(b.toInt).x2 - pos(a.toInt).x2) / (pos(a.toInt).x1 - pos(b.toInt).x1)
-        case Direction.North => (pos(a.toInt).x1 - pos(b.toInt).x1) / (pos(b.toInt).x2 - pos(a.toInt).x2)
-        case Direction.South => (pos(a.toInt).x1 - pos(b.toInt).x1) / (pos(b.toInt).x2 - pos(a.toInt).x2)
-
-      def getCurrentSegmentPosition(from: NodeIndex, to: NodeIndex, x: Double, dir: Direction) = dir match
-        case Direction.West | Direction.East   =>
-          if (pos(from.toInt).x1 == pos(to.toInt).x1) then pos(from.toInt).x1 else getSlope(from, to, dir)
-        case Direction.South | Direction.North =>
-          if (pos(from.toInt).x2 == pos(to.toInt).x2) then pos(from.toInt).x2 else getSlope(from, to, dir)
+      def getAngle(a: NodeIndex, b: NodeIndex) =
+        val delta = pos(b.toInt) - pos(a.toInt)
+        Math.atan2(delta.x1, delta.x2)
 
       var faces = ArrayBuffer[Set[NodeIndex]]().empty
-      faces.addOne(Set.empty) // outer face
 
-      case class Segment(from: NodeIndex, to: NodeIndex, var upperFace: Int, var lowerFace: Int)
-
-      val verticesWithPos = graph.vertices.zipWithIndex.map((_, i) => (i, pos(i)))
-
-      val eventQueue = verticesWithPos.sortBy((_, pos) =>
-        dir match
-          case Direction.East | Direction.West   => pos.x1
-          case Direction.North | Direction.South => pos.x2,
+      // adjacency list for each vertex containing only aligned edges
+      val adjSortedByAngle = graph.vertices.zipWithIndex.map((v, i) =>
+        (
+          NodeIndex(i) ->
+            v.neighbors.filter(neighbor =>
+              verticalSets.getOrElseThrow(NodeIndex(i)).contains(neighbor.toNode) || horizontalSets
+                .getOrElseThrow(NodeIndex(i)).contains(neighbor.toNode),
+            ).sortBy(link => getAngle(NodeIndex(i), link.toNode)).map(link => link.toNode),
+          ),
       )
 
-      var sweeplineStatus = ArrayBuffer[Segment]().empty
+      val untraversedEdges = adjSortedByAngle.flatMap((from, neighbors) => neighbors.map(n => (from, n))).toBuffer
 
-      for p <- eventQueue do
+      while untraversedEdges.size > 0 do
+        val startEdge = untraversedEdges(0)
 
-        val sweepCoordiante = dir match
-          case Direction.West | Direction.East   => pos(p._1).x1
-          case Direction.North | Direction.South => pos(p._1).x2
+        var currentEdge = startEdge
 
-        // close complete faces
+        val newFace: mutable.Set[NodeIndex] = mutable.Set.empty
 
-        // TODO: Kann so nicht funktionieren:
-        val neighborsInStatus = sweeplineStatus.drop(p._1 - 2).take(2)
+        while
+          val toNodeAdjacencyList = adjSortedByAngle(currentEdge._2.toInt)._2
 
-        val neightborsWithReprV = neighborsInStatus.filter(e => e.to == NodeIndex(p._1))
+          val nextEdgeIndex = (toNodeAdjacencyList.indexOf(currentEdge._1) + 1) % toNodeAdjacencyList.size
 
-        // remove elements from sweepline status
-        neightborsWithReprV.foreach(n => sweeplineStatus -= n)
+          newFace.add(currentEdge._1)
+          newFace.add(currentEdge._2)
 
-        // add new segments into sweepline-status
+          untraversedEdges.remove(untraversedEdges.indexOf(currentEdge))
 
-        // all vertices, that share any disjoint set with v
-        val verticesInSameSet = verticalSets.getOrElseThrow(NodeIndex(p._1))
-          .union(horizontalSets.getOrElseThrow(NodeIndex(p._1)))
+          currentEdge = (currentEdge._2, toNodeAdjacencyList(nextEdgeIndex))
 
-        val successors = verticesInSameSet.filter(v =>
-          graph.vertices(p._1).neighbors.map(link => link.toNode).contains(v),
-          // ||graph.vertices(v.toInt).neighbors.map(link => link.toNode).contains(NodeIndex(p._1)),
-        ).filter(v =>
-          dir match
-            case Direction.West  => pos(v.toInt).x1 >= pos(p._1).x1
-            case Direction.East  => pos(v.toInt).x1 <= pos(p._1).x1
-            case Direction.North => pos(v.toInt).x2 >= pos(p._1).x2
-            case Direction.South => pos(v.toInt).x2 <= pos(p._1).x2,
-        )
+          currentEdge != startEdge
+        do ()
+        end while
 
-        val successorSegements = successors.map(s => Segment(NodeIndex(p._1), s, -1, -1))
+        faces.addOne(newFace.toSet)
 
-        val newSuccessorSegments = successorSegements
-          .filter(s => !sweeplineStatus.map(seg => (seg.from, seg.to)).contains((s.from, s.to)))
-
-        sweeplineStatus.addAll(newSuccessorSegments)
-          .sortInPlaceBy(segment => getCurrentSegmentPosition(segment.from, segment.to, sweepCoordiante, dir))
-
-        // val newFacesBetweenSegments = sweeplineStatus.sliding(2).map(a => a(0).lowerFace max a(1).upperFace)
-
-        // add outer segments to faces
-        for i <- 0 until sweeplineStatus.size - 1 do
-
-          sweeplineStatus(i).lowerFace = sweeplineStatus(i).lowerFace max sweeplineStatus(i + 1).upperFace
-          sweeplineStatus(i + 1).upperFace = sweeplineStatus(i).lowerFace max sweeplineStatus(i + 1).upperFace
-
-        end for
-        // create new faces between disjoint sets
-        for i <- 0 until sweeplineStatus.size - 1 do
-          val currentSegments = (sweeplineStatus(i), sweeplineStatus(i))
-          if (currentSegments._1.lowerFace == -1 && currentSegments._2.upperFace == -1) then
-            val newSetIndex = faces.size
-            sweeplineStatus(i).lowerFace = newSetIndex
-            sweeplineStatus(i + 1).upperFace = newSetIndex
-            faces.addOne(
-              Set(
-                sweeplineStatus(i).from,
-                sweeplineStatus(i).to,
-                sweeplineStatus(i + 1).from,
-                sweeplineStatus(i + 1).to,
-              ),
-            )
-          end if
-
-        end for
-        // add references to outer face
-        sweeplineStatus.take(1).foreach(e => {
-          e.upperFace = 0
-          faces(0).++(e.from :: e.to :: Nil)
-        })
-        sweeplineStatus.reverse.take(1).foreach(e => {
-          e.lowerFace = 0
-          faces(0).++(e.from :: e.to :: Nil)
-        })
-
-      end for
+      end while
 
       return faces.toIndexedSeq
     end getAllSetsPerFace
@@ -446,7 +386,7 @@ object GreedyOrthogonalization:
         disjointSets.getOrElseThrow(repr)
       }
       // TODO: TODO: TODO: TODO: TODO: TODO: TODO: TODO:
-      val e               = getAllSetsPerFace(graph, dir)
+      val e               = getAllSetsPerFace(graph)
 
       // graph with vertial aligned vertices contracted
       val initialContracedDiGraph = Graph.fromEdges(
