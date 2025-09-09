@@ -5,7 +5,7 @@ import wueortho.util.GraphConversions.all
 import scala.compiletime.ops.long
 
 // reverseIndex: Position in der Adjazenzliste der toNode, von dem Link zur aktuellen fromNode
-case class AlignedLink(toNode: NodeIndex, reverseIndex: Int, direction: Direction):
+case class AlignedLink(toNode: NodeIndex, reverseIndex: Int, direction: Direction) derives CanEqual:
   def unalign = BasicLink(toNode, reverseIndex)
 
 case class AlignedEdge(from: NodeIndex, to: NodeIndex, direction: Direction) derives CanEqual:
@@ -43,9 +43,12 @@ trait AlignedOps:
 
   /** gets a path that starts and ends in the same direction as p that simplifies to sigma
     * @param pathAndSquare
+    *   SquareChain of the path
     * @return
     */
   def findChainInEmbedding(pathAndSquare: SquareChain): Seq[AlignedLink]
+
+  // def applyOperationsAndTransform(): Seq[AlignedLink]
 
 end AlignedOps
 
@@ -266,16 +269,14 @@ private case class AGImpl[Graph](
     if pathAndSquare.chain.length < 1 then return Seq.empty
     val startNeigbors                 = vertices(pathAndSquare.chainComplement.last.toInt).neighbors
     val startLink                     = startNeigbors.filter(l => l.toNode == pathAndSquare.chain(0))
-    val startDir                      = startLink.map(_.direction).reverse.last
     val endNeigbors                   = vertices(pathAndSquare.chain.last.toInt).neighbors
     val endLink                       = endNeigbors.filter(l => l.toNode == pathAndSquare.chainComplement(0))
     val endDir                        = endLink.map(_.direction).reverse.last
     val complementLinks               = pathAndSquare.chainComplement.reverse.sliding(2, 1)
       .map(l => vertices(l(0).toInt).neighbors.filter(_.toNode == l(1)).last).toSeq
     res = res.appended(startLink(0))
-    // TODO: im FaceIterator nachschauen, dass es auch immer passt (also der Pfad immer CCW ist)
     while complementLinks(0).direction != res.last.direction.turnCCW do
-      res = res.appended(AlignedLink(NodeIndex(vertices.length + res.length - 1), 0, res.last.direction.turnCCW))
+      res = res.appended(AlignedLink(NodeIndex(vertices.length + res.length - 1), 1, res.last.direction.turnCCW))
     end while
     res = res.appendedAll(complementLinks)
     while endDir != res.last.direction.turnCCW do
