@@ -108,30 +108,41 @@ class TopologicalOrdering():
     if remainingNodes.size == 0 then return this
     while remainingNodes.size > 0 do
       val southNeighbor                             = graph.vertices(remainingNodes(0).toInt).neighbors.filter(l => l.direction == Direction.South)
-      var currentNode                               = if southNeighbor.isEmpty then remainingNodes(0) else southNeighbor(0).toNode
+      var currentNode: Option[NodeIndex]            =
+        if southNeighbor.isEmpty then Some(remainingNodes(0)) else Some(southNeighbor(0).toNode)
       val newList: mutable.IndexedBuffer[NodeIndex] = mutable.IndexedBuffer.empty
-      while hasNeighborInDirection(currentNode, Direction.South) && currentNode != remainingNodes(0) do
-        currentNode = getNextNeighborInDir(currentNode, Direction.South).get
+      while hasNeighborInDirection(currentNode.get, Direction.South) && currentNode.get != remainingNodes(0) do
+        currentNode = getNextNeighborInDir(currentNode.get, Direction.South)
       end while
-      while hasNeighborInDirection(currentNode, Direction.North) && currentNode != remainingNodes(0) do
-        newList.addOne(currentNode)
-        val _ = remainingNodes.remove(remainingNodes.indexOf(currentNode))
+      while currentNode.isDefined && remainingNodes.contains(currentNode.get) do
+        newList.addOne(currentNode.get)
+        val index = remainingNodes.indexOf(currentNode.get)
+        val _     = remainingNodes.remove(index)
+        currentNode = getNextNeighborInDir(currentNode.get, Direction.North)
       end while
       localLists.addOne(newList)
     end while
+
+    lists.addAll(localLists)
     // sort all lists
     // TODO: Use disjointSets
     // List with indices from lists to lists with all links in direction east
-    val listNeighbors  = graph.vertices.zipWithIndex
-      .flatMap((l, i) => l.neighbors.map(l => (findListIndex(NodeIndex(i)).get, l)))
+    val vertices      = graph.vertices.zipWithIndex
+    val nodeLinkPair  = vertices.flatMap((l, i) => l.neighbors.map(l => (NodeIndex(i), l)))
       .filter((_, v) => v.direction == Direction.East)
-      .map((listIndex, link) => (listIndex, findListIndex(link.toNode).get)).distinct
+    val listLinkPair  = nodeLinkPair.map((id, link) => (findListIndex(id).get, findListIndex(link.toNode)))
+    val listNeighbors = listLinkPair.map((listIndex, toNode) => (listIndex, toNode.get)).distinct
       .groupBy((listIndex, _) => listIndex)
-    val sortedLists    = topologicalSort(
+
+    val neighborsFunction: NodeIndex => Seq[NodeIndex] = x =>
+      // getOrElse oder match, weil die Map ein Option zuerückgibt
+      listNeighbors.getOrElse(x.toInt, Seq.empty).map((_, neigbor) => NodeIndex(neigbor))
+    val sortedLists                                    = topologicalSort(
       lists.zipWithIndex.map((_, i) => NodeIndex(i)).toSeq,
-      x => listNeighbors(x.toInt).map((_, neigbor) => NodeIndex(neigbor)),
+      neighborsFunction,
     )
     localLists = localLists.zip(sortedLists.map(_.toInt)).sortBy((_, ordering) => ordering).map((lists, _) => lists)
+      .reverse
     this
   end createFromAlignedGraph
 
