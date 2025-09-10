@@ -7,6 +7,7 @@ import wueortho.data.Direction
 import wueortho.data.NodeIndex
 
 import scala.collection.mutable
+import wueortho.data.TopologicalOrdering
 
 def exampleGraph1(): AlignedGraph =
   val alignedEdges: Seq[AlignedEdge] =
@@ -93,7 +94,7 @@ def exampleGraph3(): AlignedGraph =
 end exampleGraph3
 
 @main def main() =
-  val graph = exampleGraph3();
+  val graph = exampleGraph2();
 
   val startIndex = NodeIndex(1)
 
@@ -101,12 +102,16 @@ end exampleGraph3
 
   val face = faceIterator.foldLeft(Seq(startIndex))(_ :+ _)
 
-  val longestPath = graph.findLongestChain(); // hallo kolla
+  val longestPath = graph.findLongestChain();
   // Java > Scala
 
   val square = graph.getLongestChainAndSquare();
 
   val b = graph.findChainInEmbedding(square);
+
+  val ordering = TopologicalOrdering();
+
+  val graphOrdering = ordering.createFromAlignedGraph(graph)
 
   val result = RectilinearLayout.tarjanHopcraft(graph)
   println("Done!");
@@ -179,9 +184,8 @@ object RectilinearLayout:
         res = add(res, (Set(node.id), Set.empty))
         // each dfs branch is a biconnected component => add to allComponentEdges
         allBranches.foreach(b => allComponentEdges.+=(b))
-        // res._2 = Set.empty
       else if counter > 1 then
-        // res = add(res, (Set(node.id), Set.empty)) // root-node is cut-vertex if it has more than one child in dfs tree
+        // root-node is cut-vertex if it has more than one child in dfs tree
         res = add(res, (Set(node.id), Set.empty))
         // each dfs branch is a biconnected component => add to allComponentEdges
         allBranches.foreach(b => allComponentEdges.+=(b))
@@ -190,7 +194,7 @@ object RectilinearLayout:
         returnEdges = allBranches.flatMap(b => b)
       end if
       (res._1, returnEdges)
-    end dfs // Hallo Kolla
+    end dfs
 
     while (nodeArray.exists(node => !visited.contains(node.id.toInt))) do
       val undicoveredNodes = nodeArray.filter(n => !visited.contains(n.id.toInt))
