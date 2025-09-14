@@ -3,6 +3,7 @@ import scala.collection.mutable
 import scala.collection.AbstractIterator
 import wueortho.util.GraphConversions.all
 import scala.compiletime.ops.long
+import scala.compiletime.ops.double
 
 // reverseIndex: Position in der Adjazenzliste der toNode, von dem Link zur aktuellen fromNode
 case class AlignedLink(toNode: NodeIndex, reverseIndex: Int, direction: Direction) derives CanEqual:
@@ -49,6 +50,8 @@ trait AlignedOps:
   def findChainInEmbedding(pathAndSquare: SquareChain): Seq[AlignedLink]
 
   // def applyOperationsAndTransform(): Seq[AlignedLink]
+
+  def compactFace(startNode: NodeIndex, startEdge: AlignedLink): Seq[AlignedEdge]
 
 end AlignedOps
 
@@ -140,12 +143,85 @@ private case class AGImpl[Graph](
       direction: Direction,
       end: NodeIndex,
       cw: Boolean,
+      cyclic: Boolean = false,
   ): Iterator[NodeIndex] =
     new AbstractIterator[NodeIndex]:
-      private var current          = start
-      private var currentDirection = direction
-      def hasNext                  = current != end || nodes(current.toInt).neighbors.isEmpty
-      def next(): NodeIndex        =
+      private val linkIterator: Iterator[AlignedLink] = traverseAlignedLinksFace(start, direction, end, cw, cyclic)
+      def hasNext                                     = linkIterator.hasNext
+      def next(): NodeIndex                           =
+        val currentLink = linkIterator.next()
+        currentLink.toNode
+      end next
+
+    end new
+
+  end traverseAlignedFace
+
+  /** Returns a iterator to traverse along a face
+    *
+    * @param start
+    *   NodeIndex to start with
+    * @param direction
+    *   direction to start traversal
+    * @param end
+    *   NodeIndex to stop traversal
+    * @param cw
+    *   direction of traversal
+    * @return
+    */
+  def traverseEdgesAlignedFace(
+      start: NodeIndex,
+      direction: Direction,
+      end: NodeIndex,
+      cw: Boolean,
+      cyclic: Boolean = false,
+  ): Iterator[AlignedEdge] =
+    new AbstractIterator[AlignedEdge]:
+      private val linkIterator: Iterator[AlignedLink] = traverseAlignedLinksFace(start, direction, end, cw, cyclic)
+      private var lastNode: NodeIndex                 = start
+      def hasNext                                     = linkIterator.hasNext
+      def next(): AlignedEdge                         =
+        val currentLink = linkIterator.next()
+        val currentEdge = AlignedEdge(lastNode, currentLink.toNode, currentLink.direction)
+        lastNode = currentLink.toNode
+        currentEdge
+      end next
+
+    end new
+
+  end traverseEdgesAlignedFace
+
+  /** Returns a iterator to traverse along a face
+    *
+    * @param start
+    *   NodeIndex to start with
+    * @param direction
+    *   direction to start traversal
+    * @param end
+    *   NodeIndex to stop traversal
+    * @param cw
+    *   direction of traversal
+    * @return
+    */
+  def traverseAlignedLinksFace(
+      start: NodeIndex,
+      direction: Direction,
+      end: NodeIndex,
+      cw: Boolean,
+      cyclic: Boolean = false,
+  ): Iterator[AlignedLink] =
+    new AbstractIterator[AlignedLink]:
+      private var current                          = start
+      private var currentDirection                 = direction
+      private var startLink: Option[AlignedLink]   = None;
+      private var isFirstLink                      = true;
+      private var currentLink: Option[AlignedLink] = None;
+      def hasNext                                  = (!cyclic && (currentLink.isDefined && startLink.isDefined && !isFirstLink && currentLink.get
+        .equals(startLink.get))) || nodes(current.toInt).neighbors.isEmpty
+      def next(): AlignedLink                      =
+        startLink match
+          case Some(link) => isFirstLink = false
+          case None       => ()
 
         def getFirstExistingDir(node: NodeIndex, startDir: Direction, nextDir: Direction => Direction): Direction =
           val currentDir = nextDir(startDir)
@@ -158,12 +234,17 @@ private case class AGImpl[Graph](
 
         val nextDir  = getFirstExistingDir(current, currentDirection.reverse, getNextDir)
         val nextLink = nodes(current.toInt).neighbors.filter(l => l.direction == nextDir).last
+        startLink match
+          case Some(value) => ()
+          case None        => startLink = Some(nextLink)
+        currentLink = Some(nextLink)
         current = nextLink.toNode
         currentDirection = nextLink.direction
-        current
+        nextLink
       end next
+    end new
 
-  end traverseAlignedFace
+  end traverseAlignedLinksFace
 
   def findLongestChain(): Seq[NodeIndex] =
     val allDeg2Nodes                                   = nodes.zipWithIndex.filter((n, i) => n.neighbors.size == 2).map((n, i) => NodeIndex(i));
@@ -285,5 +366,43 @@ private case class AGImpl[Graph](
     res = res.appended(endLink(0))
     return res.toSeq
   end findChainInEmbedding
+
+  def compactFace(startNode: NodeIndex, startEdge: AlignedLink): Seq[AlignedEdge] =
+    def checkForSequenceAtEnd(seq: IndexedSeq[AlignedEdge]): Boolean =
+      def linksCornersToNumbers(a: AlignedEdge, b: AlignedEdge): Seq[Int] =
+        if a.direction.turnCW == b.direction then Seq(1)
+        else if a.direction.reverse == b.direction then Seq(1, 1)
+        else Seq(0)
+      if seq.size < 5 then return false
+      seq.takeRight(4).sliding(2).flatMap(l => linksCornersToNumbers(l(0), l(1))).toSeq.takeRight(3)
+        .equals(IndexedSeq(1, 0, 0))
+
+    val res: mutable.Buffer[AlignedEdge]                = mutable.Buffer.empty
+    if vertices.size < 5 then return edges
+    val recentEdges: mutable.IndexedBuffer[AlignedEdge] = mutable.IndexedBuffer.empty
+    var lastDirectionLink                               = AlignedEdge(startNode, startEdge.toNode, startEdge.direction)
+    val faceIterator                                    = this.traverseEdgesAlignedFace(startNode, startEdge.direction, startNode, true, true)
+    var stop                                            = false
+    var startNodeCounter                                = 0
+    while !stop do
+      var nextEdge = faceIterator.next()
+      while nextEdge.direction.equals(lastDirectionLink.direction) && startNodeCounter < 4 do
+        nextEdge = faceIterator.next()
+        if nextEdge.to == startNode then startNodeCounter = startNodeCounter + 1
+      end while
+      lastDirectionLink = nextEdge
+      recentEdges.addOne(nextEdge)
+      if startNodeCounter > 3 then stop = true
+      if checkForSequenceAtEnd(recentEdges.toIndexedSeq) then
+        // replace sequence
+        val sequence       = recentEdges.takeRight(3)
+        val newEdge        = AlignedEdge(sequence(0).from, sequence(3).to, sequence(2).direction)
+        res.addOne(newEdge)
+        val recursiveGraph = AlignedGraph.fromAlignedEdges(edges.appended(newEdge)).mkAlignedGraph
+        res.addAll(recursiveGraph.compactFace(newEdge.from, AlignedLink(newEdge.to, 0, newEdge.direction)))
+        stop = true
+    end while
+    res.toSeq
+  end compactFace
 
 end AGImpl
