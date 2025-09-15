@@ -93,8 +93,38 @@ def exampleGraph3(): AlignedGraph =
   graph
 end exampleGraph3
 
+def exampleGraph4(): AlignedGraph =
+  val alignedEdges: Seq[AlignedEdge] =
+    Seq(
+      AlignedEdge(NodeIndex(0), NodeIndex(1), Direction.South),
+      AlignedEdge(NodeIndex(1), NodeIndex(2), Direction.East),
+      AlignedEdge(NodeIndex(2), NodeIndex(3), Direction.South),
+      AlignedEdge(NodeIndex(3), NodeIndex(4), Direction.West),
+      AlignedEdge(NodeIndex(4), NodeIndex(5), Direction.South),
+      AlignedEdge(NodeIndex(5), NodeIndex(6), Direction.West),
+      AlignedEdge(NodeIndex(6), NodeIndex(7), Direction.South),
+      AlignedEdge(NodeIndex(7), NodeIndex(8), Direction.East),
+      AlignedEdge(NodeIndex(8), NodeIndex(9), Direction.North),
+      AlignedEdge(NodeIndex(9), NodeIndex(10), Direction.East),
+      AlignedEdge(NodeIndex(10), NodeIndex(11), Direction.South),
+      AlignedEdge(NodeIndex(11), NodeIndex(12), Direction.West),
+      AlignedEdge(NodeIndex(12), NodeIndex(13), Direction.South),
+      AlignedEdge(NodeIndex(13), NodeIndex(14), Direction.East),
+      AlignedEdge(NodeIndex(14), NodeIndex(15), Direction.North),
+      AlignedEdge(NodeIndex(15), NodeIndex(0), Direction.West),
+      AlignedEdge(NodeIndex(0), NodeIndex(16), Direction.West),
+      AlignedEdge(NodeIndex(0), NodeIndex(17), Direction.North),
+      AlignedEdge(NodeIndex(15), NodeIndex(18), Direction.North),
+      AlignedEdge(NodeIndex(15), NodeIndex(19), Direction.East),
+    )
+  val graph                          =
+    AlignedGraph.fromAlignedEdges(alignedEdges, alignedEdges.map(e => e.from.toInt max e.to.toInt).max + 1)
+      .mkAlignedGraph;
+  graph
+end exampleGraph4
+
 @main def main() =
-  val graph = exampleGraph2();
+  val graph = exampleGraph4();
 
   val startIndex = NodeIndex(1)
 
@@ -102,16 +132,24 @@ end exampleGraph3
 
   val face = faceIterator.foldLeft(Seq(startIndex))(_ :+ _)
 
-  val longestPath = graph.findLongestChain();
+  // val longestPath = graph.findLongestChain();
   // Java > Scala
 
-  val square = graph.getLongestChainAndSquare();
+  // val square = graph.getLongestChainAndSquare();
 
-  val b = graph.findChainInEmbedding(square);
+  /*  val b = graph.findChainInEmbedding(square);
 
   val ordering = TopologicalOrdering();
 
   val graphOrdering = ordering.createFromAlignedGraph(graph)
+
+  val _ = graphOrdering.addBefore(NodeIndex(7), NodeIndex(15))
+
+  val _ = graphOrdering.deleteNode(NodeIndex(7))*/
+
+  val aligendEdge = graph.edges(1)
+
+  val c = graph.compactFace(aligendEdge.from, aligendEdge)
 
   val result = RectilinearLayout.tarjanHopcraft(graph)
   println("Done!");
