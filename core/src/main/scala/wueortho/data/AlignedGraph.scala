@@ -56,6 +56,7 @@ trait AlignedOps:
   def findChainInEmbedding(pathAndSquare: SquareChain): Seq[AlignedLink]
 
   // def applyOperationsAndTransform(): Seq[AlignedLink]
+  def isOuterFace(starNode: NodeIndex, startEdge: AlignedEdge): Boolean
 
   def compactFace(startNode: NodeIndex, startEdge: AlignedEdge): Seq[AlignedEdge]
 
@@ -387,6 +388,17 @@ private case class AGImpl[Graph](
     (index, allEdges)
   end splitEdge
 
+  def isOuterFace(startNode: NodeIndex, startEdge: AlignedEdge): Boolean          =
+    def linksCornersToNumbers(a: AlignedEdge, b: AlignedEdge): Seq[Int] =
+      if a.direction.turnCCW == b.direction then Seq(1)
+      else if a.direction.reverse == b.direction then Seq(1, 1)
+      else if a.direction == b.direction then Seq()
+      else Seq(-1)
+    val seq                                                             = this.traverseEdgesAlignedFace(startEdge.to, startEdge.direction, startEdge.from, false).toSeq
+    val s                                                               = seq.sliding(2).flatMap(l => linksCornersToNumbers(l(0), l(1))).toSeq
+    val sum                                                             = s.reduce(_ + _)
+    if sum > 0 then true else false
+  end isOuterFace
   def compactFace(startNode: NodeIndex, startEdge: AlignedEdge): Seq[AlignedEdge] =
     def checkForSequenceAtEnd(seq: IndexedSeq[AlignedEdge]): Boolean =
       def linksCornersToNumbers(a: AlignedEdge, b: AlignedEdge): Seq[Int] =
