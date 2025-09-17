@@ -394,10 +394,10 @@ private case class AGImpl[Graph](
       else if a.direction.reverse == b.direction then Seq(1, 1)
       else if a.direction == b.direction then Seq()
       else Seq(-1)
-    val seq                                                             = this.traverseEdgesAlignedFace(startEdge.to, startEdge.direction, startEdge.from, false).toSeq
-    val s                                                               = seq.sliding(2).flatMap(l => linksCornersToNumbers(l(0), l(1))).toSeq
-    val sum                                                             = s.reduce(_ + _)
-    if sum > 0 then true else false
+    val face                                                            = this.traverseEdgesAlignedFace(startEdge.to, startEdge.direction, startEdge.from, false).toSeq
+    val angleSeq                                                        = face.sliding(2).flatMap(l => linksCornersToNumbers(l(0), l(1))).toSeq
+    val sum                                                             = angleSeq.reduce(_ + _)
+    sum > 0
   end isOuterFace
   def compactFace(startNode: NodeIndex, startEdge: AlignedEdge): Seq[AlignedEdge] =
     def checkForSequenceAtEnd(seq: IndexedSeq[AlignedEdge]): Boolean =
