@@ -59,6 +59,8 @@ trait AlignedOps:
 
   def compactFace(startNode: NodeIndex, startEdge: AlignedEdge): Seq[AlignedEdge]
 
+  def compactGraph(): AlignedGraph
+
 end AlignedOps
 
 trait AlignedGraph extends Graph[AlignedLink, AlignedEdge], AlignedOps
@@ -222,8 +224,9 @@ private case class AGImpl[Graph](
       private var startLink: Option[AlignedLink]   = None;
       private var isFirstLink                      = true;
       private var currentLink: Option[AlignedLink] = None;
-      def hasNext                                  = (!cyclic && (currentLink.isDefined && startLink.isDefined && !isFirstLink && currentLink.get
-        .equals(startLink.get))) || nodes(current.toInt).neighbors.isEmpty
+      def hasNext                                  = (cyclic || ((currentLink.isEmpty && startLink.isEmpty) || currentLink.isDefined && startLink
+        .isDefined && !(!isFirstLink && currentLink.get.equals(startLink.get)))) || nodes(current.toInt).neighbors
+        .isEmpty
       def next(): AlignedLink                      =
         startLink match
           case Some(link) => isFirstLink = false
@@ -427,5 +430,23 @@ private case class AGImpl[Graph](
     end while
     res.toSeq
   end compactFace
+
+  def compactGraph(): AlignedGraph =
+    def getReverseEdge(edge: AlignedEdge): AlignedEdge =
+      AlignedEdge(edge.to, edge.from, edge.direction.reverse)
+    var unhandledEdges                                 = edges.toSet
+    var faceEdgeCandidate: mutable.Set[AlignedEdge]    = mutable.Set.empty
+    while unhandledEdges.size > 0 do
+      val edge           = unhandledEdges.toSeq(0)
+      faceEdgeCandidate.+=(edge)
+      faceEdgeCandidate.+=(getReverseEdge(edge))
+      val edgesFromFace1 = this.traverseEdgesAlignedFace(edge.from, edge.direction, edge.from, false).toSeq
+      val edgesFromFace2 = traverseEdgesAlignedFace(edge.to, edge.direction.reverse, edge.to, false).toSeq
+      unhandledEdges.--=(edgesFromFace1.toSet.++(edgesFromFace2.toSet))
+    end while
+    var allEdges                                       = this.edges.toSet
+    for e <- faceEdgeCandidate do allEdges = allEdges.++(compactFace(e.from, e))
+    AlignedGraph.fromAlignedEdges(allEdges.toSeq).mkAlignedGraph
+  end compactGraph
 
 end AGImpl
