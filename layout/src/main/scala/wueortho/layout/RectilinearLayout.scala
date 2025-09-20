@@ -149,7 +149,11 @@ end exampleGraph4
 
   val aligendEdge = graph.edges(1)
 
-  val c = graph.compactFace(aligendEdge.from, aligendEdge)
+  val e = graph.isOuterFace(AlignedEdge(NodeIndex(0), NodeIndex(17), Direction.North))
+
+  // val c = graph.compactFace(aligendEdge.from, aligendEdge)
+
+  val d = graph.compactGraph()
 
   val result = RectilinearLayout.tarjanHopcraft(graph)
   println("Done!");

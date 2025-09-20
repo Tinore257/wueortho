@@ -4,6 +4,7 @@ import scala.collection.AbstractIterator
 import wueortho.util.GraphConversions.all
 import scala.compiletime.ops.long
 import scala.compiletime.ops.double
+import scala.collection.mutable.IndexedBuffer
 
 // reverseIndex: Position in der Adjazenzliste der toNode, von dem Link zur aktuellen fromNode
 case class AlignedLink(toNode: NodeIndex, reverseIndex: Int, direction: Direction) derives CanEqual:
@@ -22,7 +23,15 @@ trait AlignedOps:
       cw: Boolean,
       cyclic: Boolean = false,
   ): Iterator[NodeIndex]
+
+  def traverseEdgesAlignedFace(
+      startEdge: AlignedEdge,
+      cw: Boolean,
+      cyclic: Boolean = false,
+  ): Iterator[AlignedEdge]
+
   def getLongestChainAndSquare(): SquareChain
+
   def applySimplifications(chain: Seq[AlignedLink]): Seq[AlignedLink]
 
   /** applies exhaustively edge contraction to the chain
@@ -56,11 +65,15 @@ trait AlignedOps:
   def findChainInEmbedding(pathAndSquare: SquareChain): Seq[AlignedLink]
 
   // def applyOperationsAndTransform(): Seq[AlignedLink]
-  def isOuterFace(starNode: NodeIndex, startEdge: AlignedEdge): Boolean
+  def isOuterFace(startEdge: AlignedEdge): Boolean
 
-  def compactFace(startNode: NodeIndex, startEdge: AlignedEdge): Seq[AlignedEdge]
-
+  def compactFace(
+      startNode: NodeIndex,
+      startEdge: AlignedEdge,
+  ): (newEdges: Seq[AlignedEdge], replacedEdges: Seq[AlignedEdge])
   def compactGraph(): AlignedGraph
+
+  def getBottomRightCornerNode(seq: Seq[AlignedEdge]): NodeIndex
 
 end AlignedOps
 
@@ -155,7 +168,8 @@ private case class AGImpl[Graph](
       cyclic: Boolean = false,
   ): Iterator[NodeIndex] =
     new AbstractIterator[NodeIndex]:
-      private val linkIterator: Iterator[AlignedLink] = traverseAlignedLinksFace(start, direction, end, cw, cyclic)
+      private val linkIterator: Iterator[AlignedLink] =
+        traverseAlignedLinksFace(nodes(start.toInt).neighbors.filter(n => n.direction == direction)(0), cw, cyclic)
       def hasNext                                     = linkIterator.hasNext
       def next(): NodeIndex                           =
         val currentLink = linkIterator.next()
@@ -179,15 +193,19 @@ private case class AGImpl[Graph](
     * @return
     */
   def traverseEdgesAlignedFace(
-      start: NodeIndex,
-      direction: Direction,
-      end: NodeIndex,
+      startEdge: AlignedEdge,
       cw: Boolean,
       cyclic: Boolean = false,
   ): Iterator[AlignedEdge] =
     new AbstractIterator[AlignedEdge]:
-      private val linkIterator: Iterator[AlignedLink] = traverseAlignedLinksFace(start, direction, end, cw, cyclic)
-      private var lastNode: NodeIndex                 = start
+      private val linkIterator: Iterator[AlignedLink] =
+        traverseAlignedLinksFace(
+          vertices(startEdge.from.toInt).neighbors
+            .filter(link => link.direction == startEdge.direction && link.toNode == startEdge.to)(0),
+          cw,
+          cyclic,
+        )
+      private var lastNode: NodeIndex                 = startEdge.to
       def hasNext                                     = linkIterator.hasNext
       def next(): AlignedEdge                         =
         val currentLink = linkIterator.next()
@@ -213,22 +231,23 @@ private case class AGImpl[Graph](
     * @return
     */
   def traverseAlignedLinksFace(
-      start: NodeIndex,
-      direction: Direction,
-      end: NodeIndex,
+      start: AlignedLink,
       cw: Boolean,
       cyclic: Boolean = false,
   ): Iterator[AlignedLink] =
     new AbstractIterator[AlignedLink]:
-      private var current                          = start
-      private var currentDirection                 = direction
+      private var current                          = start.toNode
+      private var currentDirection                 = start.direction
       private var startLink: Option[AlignedLink]   = None;
       private var isFirstLink                      = true;
       private var currentLink: Option[AlignedLink] = None;
-      def hasNext                                  = (cyclic || ((currentLink.isEmpty && startLink.isEmpty) || currentLink.isDefined && startLink
-        .isDefined && !(!isFirstLink && currentLink.get.equals(startLink.get)))) || nodes(current.toInt).neighbors
-        .isEmpty
-      def next(): AlignedLink                      =
+
+      def isStartLink(link: AlignedLink): Boolean =
+        startLink.isDefined && link.equals(startLink.get)
+      def hasNext                                 = (cyclic || (isFirstLink || !isFirstLink && currentLink.isDefined && startLink
+        .isDefined && !(isStartLink(currentLink.get)))) && !nodes(current.toInt).neighbors.isEmpty
+      //  .isDefined && !(currentLink.get.equals(startLink.get)))) && !nodes(current.toInt).neighbors.isEmpty
+      def next(): AlignedLink                     =
         startLink match
           case Some(link) => isFirstLink = false
           case None       => ()
@@ -380,26 +399,52 @@ private case class AGImpl[Graph](
   def splitEdge(
       edge: AlignedEdge,
       currentVertices: IndexedSeq[Vertex[AlignedLink]] = vertices,
-  ): (newNode: NodeIndex, newEdges: Seq[AlignedEdge]) =
+  ): (newNode: NodeIndex, newEdges: Seq[AlignedEdge], allNewEdges: Seq[AlignedEdge]) =
     val index         = NodeIndex(currentVertices.size)
     val edgesWithoutE = edges.filter(e => e != edge && !(e.to == edge.from && e.from == edge.to))
     val newEdges      = Seq(AlignedEdge(edge.from, index, edge.direction), AlignedEdge(index, edge.to, edge.direction))
     val allEdges      = edgesWithoutE.++(newEdges)
-    (index, allEdges)
+    (index, newEdges, allEdges)
   end splitEdge
 
-  def isOuterFace(startNode: NodeIndex, startEdge: AlignedEdge): Boolean          =
+  def getReverseEdge(edge: AlignedEdge): AlignedEdge =
+    AlignedEdge(edge.to, edge.from, edge.direction.reverse)
+
+  def nodeAndReversNode(edge: AlignedEdge): Seq[AlignedEdge] =
+    Seq(edge, getReverseEdge(edge))
+
+  def updateEdgesAfterSplit(
+      edges: mutable.IndexedBuffer[AlignedEdge],
+      changes: (newEdges: Seq[AlignedEdge], replacedEdges: Seq[AlignedEdge]),
+  ): mutable.IndexedBuffer[AlignedEdge] =
+    val allReplaced = changes.replacedEdges.flatMap(e => Seq(e, getReverseEdge(e)))
+    val allNew      = changes.newEdges.flatMap(e => Seq(e, getReverseEdge(e)))
+    edges.map(e =>
+      if allReplaced.contains(e) then
+        allNew.find(x => x.direction == e.direction && (x.from == e.from || x.to == e.to)) match
+          case Some(splitEdge) => splitEdge
+          case None            => sys.error("was replaced but no replacement found!")
+      else e,
+    )
+  end updateEdgesAfterSplit
+
+  def isOuterFace(startEdge: AlignedEdge): Boolean =
     def linksCornersToNumbers(a: AlignedEdge, b: AlignedEdge): Seq[Int] =
       if a.direction.turnCCW == b.direction then Seq(1)
       else if a.direction.reverse == b.direction then Seq(1, 1)
       else if a.direction == b.direction then Seq()
       else Seq(-1)
-    val face                                                            = this.traverseEdgesAlignedFace(startEdge.to, startEdge.direction, startEdge.from, false).toSeq
+    val debug                                                           = this.traverseEdgesAlignedFace(startEdge, false).take(40).toSeq
+    val face                                                            = this.traverseEdgesAlignedFace(startEdge, false).toSeq
     val angleSeq                                                        = face.sliding(2).flatMap(l => linksCornersToNumbers(l(0), l(1))).toSeq
     val sum                                                             = angleSeq.reduce(_ + _)
     sum > 0
   end isOuterFace
-  def compactFace(startNode: NodeIndex, startEdge: AlignedEdge): Seq[AlignedEdge] =
+
+  def compactFace(
+      startNode: NodeIndex,
+      startEdge: AlignedEdge,
+  ): (newEdges: Seq[AlignedEdge], replacedEdges: Seq[AlignedEdge]) =
     def checkForSequenceAtEnd(seq: IndexedSeq[AlignedEdge]): Boolean =
       def linksCornersToNumbers(a: AlignedEdge, b: AlignedEdge): Seq[Int] =
         if a.direction.turnCCW == b.direction then Seq(1)
@@ -407,13 +452,16 @@ private case class AGImpl[Graph](
         else Seq(0)
       if seq.size < 4 then return false
       val s                                                               = seq.takeRight(4).sliding(2).flatMap(l => linksCornersToNumbers(l(0), l(1))).toSeq
-      s.takeRight(3).equals(IndexedSeq(0, 0, 1))
+      s.takeRight(3).equals(Seq(0, 0, 1)) || s.equals(Seq(0, 0, 1, 1))
 
-    val res: mutable.Buffer[AlignedEdge]                = mutable.Buffer.empty
-    if vertices.size < 5 then return edges
+    val res: mutable.Buffer[AlignedEdge]          = mutable.Buffer.empty
+    val removedEdges: mutable.Buffer[AlignedEdge] = mutable.Buffer.empty
+
+    if vertices.size < 5 then return (edges, Seq.empty)
     val recentEdges: mutable.IndexedBuffer[AlignedEdge] = mutable.IndexedBuffer.empty
     var lastDirectionLink                               = startEdge
-    val faceIterator                                    = this.traverseEdgesAlignedFace(startNode, startEdge.direction.turnCCW, startNode, false, true)
+    val faceIterator                                    = this.traverseEdgesAlignedFace(startEdge, false, true)
+    val debug                                           = this.traverseEdgesAlignedFace(startEdge, false, true).take(40).toSeq
     var stop                                            = false
     var startNodeCounter                                = 0
     while !stop do
@@ -428,36 +476,120 @@ private case class AGImpl[Graph](
       if startNodeCounter > 3 then stop = true
       if checkForSequenceAtEnd(recentEdges.toIndexedSeq) then
         // replace sequence
-        val sequence                = recentEdges.takeRight(4)
+        val sequence                                   = recentEdges.takeRight(4)
         // TODO: Instead of inserting to sequence(2) ====> SplitEdge funktion, um neuen Knoten einzufügen!!!!!
-        val (newIndex, allNewEdges) = splitEdge(sequence(0))
-        val newEdge                 = AlignedEdge(sequence(3).from, newIndex, sequence(1).direction.reverse)
-        res.addOne(newEdge)
-        val recursiveGraph          = AlignedGraph.fromAlignedEdges(allNewEdges.appended(newEdge)).mkAlignedGraph
-        res.addAll(
-          recursiveGraph.compactFace(newEdge.to, AlignedEdge(newEdge.to, newEdge.from, newEdge.direction.reverse)),
-        )
+        val (newIndex, newEdgesFromSplit, allNewEdges) = splitEdge(sequence(0))
+        val newEdge                                    = AlignedEdge(sequence(3).from, newIndex, sequence(1).direction.reverse)
+        val recursiveGraph                             = AlignedGraph.fromAlignedEdges(allNewEdges.appended(newEdge)).mkAlignedGraph
+        val rec                                        = recursiveGraph.compactFace(newEdge.from, getReverseEdge(newEdge))
+        res.addAll((newEdgesFromSplit.appended(newEdge)).filter(e => !rec.replacedEdges.contains(e)))
+        res.addAll(rec.newEdges)
+        // res.--=(nodeAndReversNode(sequence(0)))
+        if !(rec.newEdges.contains(sequence(0))) then removedEdges.addOne(sequence(0))
+        res.--=(rec.replacedEdges.flatMap(r => nodeAndReversNode(r)))
+        removedEdges.addAll(rec.replacedEdges.filter(e => !(newEdgesFromSplit.appended(newEdge)).contains(e)))
         stop = true
       end if
     end while
-    res.toSeq
+    (res.toSeq, removedEdges.toSeq)
   end compactFace
 
+  def getBottomRightCornerNode(seq: Seq[AlignedEdge]): NodeIndex =
+    val allBRCorners = seq.++(seq.take(1)).sliding(2).filter(l =>
+      isOuterFace(l(0)) && (l(0).direction == Direction.South && l(1).direction == Direction.West ||
+        l(0).direction == Direction.East && l(1).direction == Direction.West ||
+        l(0).direction == Direction.South && l(1).direction == Direction.North),
+    ).map(l => l(0)).filter(x =>
+      seq.find(e =>
+        (e.direction == Direction.South && e.from == x.to) || (
+          e.direction == Direction.North && e.to == x.to
+        ),
+      ).isEmpty,
+    ).map(_.to)
+    if allBRCorners.isEmpty then sys.error("Outer face does not contain any bottom right corener!")
+    allBRCorners.next()
+  end getBottomRightCornerNode
+
   def compactGraph(): AlignedGraph =
-    def getReverseEdge(edge: AlignedEdge): AlignedEdge =
-      AlignedEdge(edge.to, edge.from, edge.direction.reverse)
-    var unhandledEdges                                 = edges.toSet
-    var faceEdgeCandidate: mutable.Set[AlignedEdge]    = mutable.Set.empty
+    def addBoundingBox(edges: Seq[AlignedEdge]): Seq[AlignedEdge] =
+      val i        = edges.flatMap(e => Seq(e.from, e.to)).map(_.toInt).max + 1
+      val newEdges = Seq(
+        AlignedEdge(NodeIndex(i), NodeIndex(i + 1), Direction.West),
+        AlignedEdge(NodeIndex(i + 1), NodeIndex(i + 2), Direction.West),
+        AlignedEdge(NodeIndex(i + 2), NodeIndex(i + 3), Direction.North),
+        AlignedEdge(NodeIndex(i + 3), NodeIndex(i + 4), Direction.East),
+        AlignedEdge(NodeIndex(i + 4), NodeIndex(i), Direction.South),
+      )
+      newEdges
+    end addBoundingBox
+    var unhandledEdges                                            = edges.toSet
+    var faceEdgeCandidate: mutable.IndexedBuffer[AlignedEdge]     = mutable.IndexedBuffer().empty
     while unhandledEdges.size > 0 do
-      val edge           = unhandledEdges.toSeq(0)
+      // val edge           = unhandledEdges.toSeq(0)
+      val edge           = AlignedEdge(NodeIndex(0), NodeIndex(15), Direction.East)
       faceEdgeCandidate.+=(edge)
       faceEdgeCandidate.+=(getReverseEdge(edge))
-      val edgesFromFace1 = this.traverseEdgesAlignedFace(edge.from, edge.direction, edge.from, false).toSeq
-      val edgesFromFace2 = traverseEdgesAlignedFace(edge.to, edge.direction.reverse, edge.to, false).toSeq
+      // TODO: DEBUG
+      // TODO: DEBUG
+      // TODO: DEBUG
+      // TODO: DEBUG
+      // TODO: DEBUG
+      val edgesFromFace1 = this.traverseEdgesAlignedFace(edge, false).toSeq
+      val edgesFromFace2 = traverseEdgesAlignedFace(getReverseEdge(edge), false).toSeq
       unhandledEdges.--=(edgesFromFace1.toSet.++(edgesFromFace2.toSet))
     end while
-    var allEdges                                       = this.edges.toSet
-    for e <- faceEdgeCandidate do allEdges = allEdges.++(compactFace(e.from, e))
+    var allEdges                                                  = this.edges.toSet
+    val bb                                                        = addBoundingBox(allEdges.toSeq)
+    allEdges.++=(bb)
+    var currentGraph                                              = AlignedGraph.fromAlignedEdges(allEdges.toSeq).mkAlignedGraph
+    var i                                                         = 0
+    while i < faceEdgeCandidate.size do
+
+      var e = faceEdgeCandidate(i)
+      if currentGraph.isOuterFace(e) then
+        val edgesAfterCompaction = currentGraph.compactFace(e.to, e)
+        // update edges that were split
+        faceEdgeCandidate = updateEdgesAfterSplit(faceEdgeCandidate, edgesAfterCompaction)
+        val allReplaced          = edgesAfterCompaction.replacedEdges.flatMap(e => nodeAndReversNode(e))
+        allEdges = allEdges.++(edgesAfterCompaction.newEdges).toSet.--(allReplaced)
+        val compactedGraph       = AlignedGraph.fromAlignedEdges(allEdges.toSeq).mkAlignedGraph
+        // after compaction e might no longer lay on the outer face
+        val x                    = edgesAfterCompaction.newEdges.flatMap(e => Seq(e, getReverseEdge(e)))
+          .map(e => (e, compactedGraph.isOuterFace(e)))
+        e =
+          if edgesAfterCompaction.newEdges.isEmpty then e
+          else edgesAfterCompaction.newEdges.find(e => compactedGraph.isOuterFace(e)).get
+        val debug                = compactedGraph.traverseEdgesAlignedFace(e, false).take(40).toSeq
+        val outerFaceIter        = compactedGraph.traverseEdgesAlignedFace(e, false).toSeq
+        val nodeToOuterFace      = compactedGraph.getBottomRightCornerNode(
+          outerFaceIter,
+        )
+        val edgesToBB            = Seq(
+          AlignedEdge(nodeToOuterFace, bb(0).to, Direction.South),
+          AlignedEdge(bb(0).to, nodeToOuterFace, Direction.North),
+        )
+        allEdges.++=(edgesToBB)
+        val graphWithConnectedBB = AlignedGraph.fromAlignedEdges(allEdges.toSeq).mkAlignedGraph
+        faceEdgeCandidate = faceEdgeCandidate.++(edgesToBB)
+        currentGraph = graphWithConnectedBB
+        /*val edgesAfterSecondCompaction = graphWithConnectedBB
+          .compactFace(nodeToOuterFace, AlignedEdge(bb(0).to, nodeToOuterFace, Direction.North))
+        faceEdgeCandidate = updateEdgesAfterSplit(faceEdgeCandidate, edgesAfterSecondCompaction)
+        val allReplacedSecond          = edgesAfterSecondCompaction.replacedEdges.flatMap(e => nodeAndReversNode(e))
+        allEdges = allEdges.++(edgesAfterSecondCompaction.newEdges).toSet.--(allReplacedSecond)
+        currentGraph = AlignedGraph.fromAlignedEdges(allEdges.toSeq).mkAlignedGraph
+         */
+      else
+        val edgesAfterCompaction = currentGraph.compactFace(e.to, e)
+        // update edges that were split
+        faceEdgeCandidate = updateEdgesAfterSplit(faceEdgeCandidate, edgesAfterCompaction)
+        val allReplaced          = edgesAfterCompaction.replacedEdges.flatMap(e => nodeAndReversNode(e))
+        allEdges = allEdges.++(edgesAfterCompaction.newEdges).toSet.--(allReplaced)
+        val compactedGraph       = AlignedGraph.fromAlignedEdges(allEdges.toSeq).mkAlignedGraph
+        currentGraph = compactedGraph
+      end if
+      i = i + 1
+    end while
     AlignedGraph.fromAlignedEdges(allEdges.toSeq).mkAlignedGraph
   end compactGraph
 
