@@ -78,6 +78,8 @@ trait AlignedOps:
 
   def getBottomRightCornerNode(seq: Seq[AlignedEdge]): NodeIndex
 
+  def createFlowNetwork(): DefaultDirectedGraph[Integer, DefaultEdge]
+
 end AlignedOps
 
 trait AlignedGraph extends Graph[AlignedLink, AlignedEdge], AlignedOps
@@ -517,8 +519,7 @@ private case class AGImpl[Graph](
     var unhandledEdges                                             = this.edges.to(IndexedBuffer)
     var faceEdgeCandidate: mutable.IndexedBuffer[Seq[AlignedEdge]] = mutable.IndexedBuffer().empty
     while unhandledEdges.size > 0 do
-      // val edge           = unhandledEdges.toSeq(0)
-      val edge           = AlignedEdge(NodeIndex(0), NodeIndex(15), Direction.East)
+      val edge           = unhandledEdges.toSeq(0)
       val edgesFromFace1 = Seq(edge).++(traverseEdgesAlignedFace(edge, false).toSeq)
       faceEdgeCandidate.+=(edgesFromFace1)
       val edgesFromFace2 = Seq(getReverseEdge(edge)).++(traverseEdgesAlignedFace(getReverseEdge(edge), false).toSeq)
@@ -573,7 +574,7 @@ private case class AGImpl[Graph](
         )
         val edgesToBB            = Seq(
           AlignedEdge(nodeToOuterFace, bb(0).to, Direction.South),
-          AlignedEdge(bb(0).to, nodeToOuterFace, Direction.North),
+          // AlignedEdge(bb(0).to, nodeToOuterFace, Direction.North), // nur eine Kante hinzufügen, da auch nur eine neue Facette entsteht
         )
         allEdges.++=(edgesToBB)
         val graphWithConnectedBB = AlignedGraph.fromAlignedEdges(allEdges.toSeq).mkAlignedGraph
@@ -613,21 +614,35 @@ private case class AGImpl[Graph](
 
   // eventuell zusätzlich die Facette mitgeben, damit sichergestellt werden kann, das entlang der richtgen Facette traversiert wird
   // returns all edges of a face, that close the face into the given direction
-  def getAllEdgesOfFaceInDirection(face: Int, allFacesReps: IndexedSeq[AlignedEdge]): Seq[AlignedEdge] =
-    val dir             = Direction.North;
+  def getAllEdgesOfFaceInDirection(
+      face: Int,
+      allFacesReps: IndexedSeq[AlignedEdge],
+      dir: Direction,
+      isOuterFace: Boolean = false,
+  ): Seq[AlignedEdge] =
     val faceRep         = allFacesReps(face)
     val faceEdges       = traverseEdgesAlignedFace(faceRep).toSeq
     if (faceEdges.size == 0) then sys.error("The compacted face contains no edges!")
-    val faceEdgesCyclic = faceEdges.appendedAll(faceEdges)
+    val faceEdgesCyclic = faceEdges.appendedAll(faceEdges.drop(1))
     var i               = 0;
-    while (
-      i < faceEdgesCyclic.length &&
-      faceEdgesCyclic(i).direction != dir && faceEdgesCyclic((i + 1) % faceEdgesCyclic.length).direction != dir.turnCCW
-    ) do i = i + 1
+    while i < faceEdgesCyclic.length do
+      while (
+        i < faceEdgesCyclic.length &&
+        !(faceEdgesCyclic(i).direction == dir && faceEdgesCyclic((i + 1) % faceEdgesCyclic.length).direction == (if !isOuterFace
+                                                                                                                 then
+                                                                                                                   dir.turnCW
+                                                                                                                 else
+                                                                                                                   dir.turnCCW
+        ))
+      ) do i = i + 1
+      end while
+      val removedHead = faceEdgesCyclic.drop(i + 1)
+      val removedTail = removedHead.takeWhile(_.direction == (if !isOuterFace then dir.turnCW else dir.turnCCW))
+      val tail        = removedHead.dropWhile(_.direction == (if !isOuterFace then dir.turnCW else dir.turnCCW))
+      if tail.isEmpty then return Seq.empty
+      if tail(0).direction == dir.reverse then return removedTail else i = i + 1
     end while
-    val removedHead     = faceEdgesCyclic.drop(i + 1)
-    var removedTail     = removedHead.dropWhile(e => e.direction == dir.turnCCW)
-    return removedTail
+    return Seq.empty
   end getAllEdgesOfFaceInDirection
 
   def isCorner(e1: AlignedEdge, e2: AlignedEdge): Boolean =
@@ -637,19 +652,26 @@ private case class AGImpl[Graph](
   case class AlignedEdgeWFaces(e: AlignedEdge, neigborRight: Int, neigborLeft: Int);
 
   case class FaceWithEdgesPerDirection(
-      var topEdges: Seq[AlignedEdge],
-      var leftEdges: Seq[AlignedEdge],
-      var bottomEdges: Seq[AlignedEdge],
-      var rightEdges: Seq[AlignedEdge],
-  )
+      var topEdges: Seq[AlignedEdge] = Seq.empty,
+      var leftEdges: Seq[AlignedEdge] = Seq.empty,
+      var bottomEdges: Seq[AlignedEdge] = Seq.empty,
+      var rightEdges: Seq[AlignedEdge] = Seq.empty,
+  ):
+    def update(edges: Seq[AlignedEdge], dir: Direction) =
+      dir match
+        case Direction.North => topEdges = edges
+        case Direction.East  => rightEdges = edges
+        case Direction.South => bottomEdges = edges
+        case Direction.West  => leftEdges = edges
+  end FaceWithEdgesPerDirection
 
-  def createFlowNetwork(): Unit =
+  def createFlowNetwork(): DefaultDirectedGraph[Integer, DefaultEdge] =
     // create a node for each (inner) face
     val g = DefaultDirectedGraph[Integer, DefaultEdge](classOf[DefaultEdge]);
 
-    val facesReps = getOneEdgePerFace()
+    val faceReps = getOneEdgePerFace()
 
-    val innerFaceReps = facesReps.filter(f => !isOuterFace(f));
+    val innerFaceReps = faceReps.filter(f => !isOuterFace(f));
 
     for i <- 0 to innerFaceReps.length do g.addVertex(i)
     end for
@@ -660,17 +682,20 @@ private case class AGImpl[Graph](
     g.addVertex(t)
 
     // get map from edge to faces
-    val edgeToFaceMap = getMapEdgeToAdjacentFace(facesReps)
+    val edgeToFaceMap = getMapEdgeToAdjacentFace(faceReps)
 
-    var faceToEdgesInDir = mutable.IndexedBuffer[FaceWithEdgesPerDirection]().empty
+    var faceToEdgesInDir = faceReps
+      .map(_ => FaceWithEdgesPerDirection()) // mutable.IndexedBuffer[FaceWithEdgesPerDirection]().empty
 
-    for i <- 0 to facesReps.length do
-      // TODO: change/add loop to for each direction
-      if !isOuterFace(facesReps(i)) then
-        val upperEdges  = getAllEdgesOfFaceInDirection(i, facesReps.toIndexedSeq)
-        val currentFace = faceToEdgesInDir(i)
-        currentFace.topEdges = upperEdges
+    for i <- 0 to faceReps.length - 1 do
+      for dir <- Direction.values.toSeq do
+        val edgesInDirection = getAllEdgesOfFaceInDirection(i, faceReps.toIndexedSeq, dir, isOuterFace(faceReps(i)))
+        val currentFace      = faceToEdgesInDir(i)
+        currentFace.update(edgesInDirection, dir)
+      end for
     end for
+
+    g
 
   end createFlowNetwork
 
