@@ -516,21 +516,29 @@ private case class AGImpl[Graph](
   end getBottomRightCornerNode
 
   def getAllFaces(): mutable.IndexedBuffer[Seq[AlignedEdge]] =
-    var unhandledEdges                                             = this.edges.to(IndexedBuffer)
-    var faceEdgeCandidate: mutable.IndexedBuffer[Seq[AlignedEdge]] = mutable.IndexedBuffer().empty
+    def ensureSmallestEdgeFirst(face: Seq[AlignedEdge]): Seq[AlignedEdge] =
+      if face.isEmpty then return face
+      val smallestElementIndex = face.zipWithIndex.minBy((e, _) => e.from.toInt)._2
+      val sortedFace           = face.slice(smallestElementIndex, face.length).++(face.slice(0, smallestElementIndex))
+      sortedFace
+    end ensureSmallestEdgeFirst
+
+    var unhandledEdges                                   = this.edges.to(IndexedBuffer)
+    var faceEdgeCandidate: mutable.Set[Seq[AlignedEdge]] = mutable.Set().empty
     while unhandledEdges.size > 0 do
       val edge           = unhandledEdges.toSeq(0)
-      val edgesFromFace1 = Seq(edge).++(traverseEdgesAlignedFace(edge, false).toSeq)
-      faceEdgeCandidate.+=(edgesFromFace1)
+      val edgesFromFace1 = Seq(edge).++(traverseEdgesAlignedFace(edge, false).toSeq).dropRight(2)
+      faceEdgeCandidate.+=(ensureSmallestEdgeFirst(edgesFromFace1))
       val edgesFromFace2 = Seq(getReverseEdge(edge)).++(traverseEdgesAlignedFace(getReverseEdge(edge), false).toSeq)
-      faceEdgeCandidate += (edgesFromFace2)
+        .dropRight(2)
+      faceEdgeCandidate += (ensureSmallestEdgeFirst(edgesFromFace2))
       unhandledEdges.--=(edgesFromFace1.toSet.++(edgesFromFace2.toSet))
     end while
-    faceEdgeCandidate
+    faceEdgeCandidate.to(IndexedBuffer)
   end getAllFaces
 
   def getOneEdgePerFace(): mutable.IndexedBuffer[AlignedEdge] =
-    getAllFaces().flatMap(f => if (f.size > 0) f.sortBy(l => l.from.toInt min l.to.toInt).take(1) else Seq.empty)
+    getAllFaces().flatMap(f => if (f.size > 0) then f.sortBy(l => l.from.toInt min l.to.toInt).take(1) else Seq.empty)
   end getOneEdgePerFace
 
   def compactGraph(): AlignedGraph =
