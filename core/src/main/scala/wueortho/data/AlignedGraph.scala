@@ -729,18 +729,17 @@ private case class AGImpl[Graph](
     end for
     // add directed edges to graph
     for i <- 0 to faceReps.length - 1 do
-      val edgesInDirection    = faceToEdgesInDir(i).getInDirection(if !isOuterFace(faceReps(i)) then dir else dir.reverse)
-      val allNeighboringFaces = edgesInDirection.flatMap(e => edgeToFaceMap.get(e).getOrElse(Seq.empty)).filter(_ != i)
-      for face <- allNeighboringFaces do g.addEdge(i, face)
-      end for
+      if !isOuterFace(faceReps(i)) then
+        val edgesInDirection    = faceToEdgesInDir(i).getInDirection(dir)
+        val allNeighboringFaces = edgesInDirection.flatMap(e => edgeToFaceMap.get(e).getOrElse(Seq.empty))
+          .filter(_ != i)
+        allNeighboringFaces.foreach(g.addEdge(i, _))
     end for
     // connect s to the remaining graph
     val outerFace = faceToEdgesInDir(outerFaceIndex(0))
-
-    val allOuterEdges = outerFace.getInDirection(dir.reverse)
-    for e <- allOuterEdges do
-      val _ = g.addEdge(s, e.to.toInt)
-    end for
+    val edgesInDirection    = outerFace.getInDirection(dir.reverse)
+    val allNeighboringFaces = edgesInDirection.flatMap(e => edgeToFaceMap.get(e).getOrElse(Seq.empty)).filter(_ != s)
+    allNeighboringFaces.foreach(g.addEdge(s, _))
 
     val allEdges = g.edgeSet.toArray().toSeq
     g
