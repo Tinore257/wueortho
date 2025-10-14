@@ -153,7 +153,9 @@ end exampleGraph4
 
   // val c = graph.compactFace(aligendEdge.from, aligendEdge)
 
-  val d = graph.compactGraph()
+  val d = graph.rectangularDissection() // bessere Benennung: rectangular dissection
+
+  val f = d.createFlowNetwork();
 
   val result = RectilinearLayout.tarjanHopcraft(graph)
   println("Done!");

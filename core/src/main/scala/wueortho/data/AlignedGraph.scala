@@ -70,11 +70,12 @@ trait AlignedOps:
   // def applyOperationsAndTransform(): Seq[AlignedLink]
   def isOuterFace(startEdge: AlignedEdge): Boolean
 
-  def compactFace(
+  def rectangularDissectFace(
       startNode: NodeIndex,
       startEdge: AlignedEdge,
   ): (newEdges: Seq[AlignedEdge], replacedEdges: Seq[AlignedEdge])
-  def compactGraph(): AlignedGraph
+
+  def rectangularDissection(): AlignedGraph
 
   def getBottomRightCornerNode(seq: Seq[AlignedEdge]): NodeIndex
 
@@ -446,7 +447,7 @@ private case class AGImpl[Graph](
     isOuterFace(this.traverseEdgesAlignedFace(startEdge, false).toSeq)
   end isOuterFace
 
-  def compactFace(
+  def rectangularDissectFace(
       startNode: NodeIndex,
       startEdge: AlignedEdge,
   ): (newEdges: Seq[AlignedEdge], replacedEdges: Seq[AlignedEdge]) =
@@ -486,7 +487,7 @@ private case class AGImpl[Graph](
         val (newIndex, newEdgesFromSplit, allNewEdges) = splitEdge(sequence(0))
         val newEdge                                    = AlignedEdge(sequence(3).from, newIndex, sequence(1).direction.reverse)
         val recursiveGraph                             = AlignedGraph.fromAlignedEdges(allNewEdges.appended(newEdge)).mkAlignedGraph
-        val rec                                        = recursiveGraph.compactFace(newEdge.from, getReverseEdge(newEdge))
+        val rec                                        = recursiveGraph.rectangularDissectFace(newEdge.from, getReverseEdge(newEdge))
         res.addAll((newEdgesFromSplit.appended(newEdge)).filter(e => !rec.replacedEdges.contains(e)))
         res.addAll(rec.newEdges)
         // res.--=(nodeAndReversNode(sequence(0)))
@@ -497,7 +498,7 @@ private case class AGImpl[Graph](
       end if
     end while
     (res.toSeq, removedEdges.toSeq)
-  end compactFace
+  end rectangularDissectFace
 
   def getBottomRightCornerNode(seq: Seq[AlignedEdge]): NodeIndex =
     val allBRCorners = seq.++(seq.take(1)).sliding(2).filter(l =>
@@ -541,7 +542,7 @@ private case class AGImpl[Graph](
     getAllFaces().flatMap(f => if (f.size > 0) then f.sortBy(l => l.from.toInt min l.to.toInt).take(1) else Seq.empty)
   end getOneEdgePerFace
 
-  def compactGraph(): AlignedGraph =
+  def rectangularDissection(): AlignedGraph =
     def addBoundingBox(edges: Seq[AlignedEdge]): Seq[AlignedEdge] =
       val i        = edges.flatMap(e => Seq(e.from, e.to)).map(_.toInt).max + 1
       val newEdges = Seq(
@@ -563,7 +564,7 @@ private case class AGImpl[Graph](
 
       var e = faceEdgeCandidate(i)
       if currentGraph.isOuterFace(e) then
-        val edgesAfterCompaction = currentGraph.compactFace(e.to, e)
+        val edgesAfterCompaction = currentGraph.rectangularDissectFace(e.to, e)
         // update edges that were split
         faceEdgeCandidate = updateEdgesAfterSplit(faceEdgeCandidate, edgesAfterCompaction)
         val allReplaced          = edgesAfterCompaction.replacedEdges.flatMap(e => nodeAndReversNode(e))
@@ -588,15 +589,8 @@ private case class AGImpl[Graph](
         val graphWithConnectedBB = AlignedGraph.fromAlignedEdges(allEdges.toSeq).mkAlignedGraph
         faceEdgeCandidate = faceEdgeCandidate.++(edgesToBB)
         currentGraph = graphWithConnectedBB
-        /*val edgesAfterSecondCompaction = graphWithConnectedBB
-          .compactFace(nodeToOuterFace, AlignedEdge(bb(0).to, nodeToOuterFace, Direction.North))
-        faceEdgeCandidate = updateEdgesAfterSplit(faceEdgeCandidate, edgesAfterSecondCompaction)
-        val allReplacedSecond          = edgesAfterSecondCompaction.replacedEdges.flatMap(e => nodeAndReversNode(e))
-        allEdges = allEdges.++(edgesAfterSecondCompaction.newEdges).toSet.--(allReplacedSecond)
-        currentGraph = AlignedGraph.fromAlignedEdges(allEdges.toSeq).mkAlignedGraph
-         */
       else
-        val edgesAfterCompaction = currentGraph.compactFace(e.to, e)
+        val edgesAfterCompaction = currentGraph.rectangularDissectFace(e.to, e)
         // update edges that were split
         faceEdgeCandidate = updateEdgesAfterSplit(faceEdgeCandidate, edgesAfterCompaction)
         val allReplaced          = edgesAfterCompaction.replacedEdges.flatMap(e => nodeAndReversNode(e))
@@ -607,7 +601,7 @@ private case class AGImpl[Graph](
       i = i + 1
     end while
     AlignedGraph.fromAlignedEdges(allEdges.toSeq).mkAlignedGraph
-  end compactGraph
+  end rectangularDissection
 
   def getMapEdgeToAdjacentFace(facesReps: IndexedBuffer[AlignedEdge]): Map[AlignedEdge, IndexedBuffer[Int]] =
     /*def isSameOrReverseEdge(e1: AlignedEdge, e2: AlignedEdge): Boolean =
@@ -639,7 +633,7 @@ private case class AGImpl[Graph](
   ): Seq[AlignedEdge] =
     val faceRep         = allFacesReps(face)
     val faceEdges       = traverseEdgesAlignedFace(faceRep).toSeq
-    if (faceEdges.size == 0) then sys.error("The compacted face contains no edges!")
+    if (faceEdges.size == 0) then sys.error("Face of a rectangular dissection contains no edges!")
     val faceEdgesCyclic = faceEdges.appendedAll(faceEdges.drop(1))
     var i               = 0;
     while i < faceEdgesCyclic.length do
