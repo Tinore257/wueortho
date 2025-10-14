@@ -8,6 +8,12 @@ import scala.collection.mutable.IndexedBuffer
 import org.jgrapht.graph.DefaultDirectedGraph
 import org.jgrapht.graph.DefaultEdge
 import scala.collection.immutable.HashMap
+import org.jgrapht.alg.flow.mincost.CapacityScalingMinimumCostFlow
+import org.jgrapht.alg.flow.mincost.MinimumCostFlowProblem.MinimumCostFlowProblemImpl
+import org.jgrapht.alg.interfaces.MinimumCostFlowAlgorithm.MinimumCostFlow
+import org.jgrapht.alg.flow.mincost.MinimumCostFlowProblem
+import java.util.Map.Entry
+import scala.jdk.CollectionConverters._
 
 // reverseIndex: Position in der Adjazenzliste der toNode, von dem Link zur aktuellen fromNode
 case class AlignedLink(toNode: NodeIndex, reverseIndex: Int, direction: Direction) derives CanEqual:
@@ -744,5 +750,39 @@ private case class AGImpl[Graph](
     g
 
   end createFlowNetwork
+
+  case class AlignedEdgeWithLength(edge: AlignedEdge, length: Int)
+
+  def solveFlowNetwork(network: org.jgrapht.Graph[Int, DefaultEdge]): Seq[(DefaultEdge, Double)] =
+
+    val nodeDemand: java.util.function.Function[Int, Integer] = (_: Int) => 0
+
+    val minArcCapacityFunc: java.util.function.Function[DefaultEdge, Integer] = (_: DefaultEdge) => 0
+
+    val maxArcCapacityFunc: java.util.function.Function[DefaultEdge, Integer] = (_: DefaultEdge) =>
+      CapacityScalingMinimumCostFlow.CAP_INF
+
+    // val costFunc: java.util.function.Function[DefaultEdge, Double] = (_: DefaultEdge) => 1.0
+
+    val problemInstance =
+      MinimumCostFlowProblemImpl[Int, DefaultEdge](
+        network,
+        nodeDemand,
+        minArcCapacityFunc,
+        maxArcCapacityFunc,
+        // costFunc,
+      )
+
+    val minCostFlow = CapacityScalingMinimumCostFlow[Int, DefaultEdge]()
+
+    val flow = minCostFlow.getMinimumCostFlow(problemInstance)
+
+    val totalWidth = flow.getFlow
+
+    val keyMap = flow.getFlowMap;
+
+    keyMap.entrySet().asScala.toSeq.map(entry => (entry.getKey(), entry.getValue()))
+
+  end solveFlowNetwork
 
 end AGImpl
