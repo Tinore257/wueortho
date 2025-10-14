@@ -78,7 +78,7 @@ trait AlignedOps:
 
   def getBottomRightCornerNode(seq: Seq[AlignedEdge]): NodeIndex
 
-  def createFlowNetwork(): DefaultDirectedGraph[Integer, DefaultEdge]
+  def createFlowNetwork(dir: Direction = Direction.North): DefaultDirectedGraph[Integer, DefaultEdge]
 
 end AlignedOps
 
@@ -610,10 +610,19 @@ private case class AGImpl[Graph](
   end compactGraph
 
   def getMapEdgeToAdjacentFace(facesReps: IndexedBuffer[AlignedEdge]): Map[AlignedEdge, IndexedBuffer[Int]] =
-    val edgeToFaceMap = facesReps.zipWithIndex
-      .flatMap((rep, i) => this.traverseEdgesAlignedFace(rep, false).toSeq.map(l => (i, l))).groupBy((_, edge) => edge)
-      .map((k, v) => (k, v.map((face, _) => face)))
-    edgeToFaceMap
+    /*def isSameOrReverseEdge(e1: AlignedEdge, e2: AlignedEdge): Boolean =
+      def isSameEdge(e1: AlignedEdge, e2: AlignedEdge): Boolean =
+        e1.from == e2.from && e1.to == e2.to
+      isSameEdge(e1, e2) || isSameEdge(e1, getReverseEdge(e2))*/
+    def edgeSortedFromTo(e: AlignedEdge): AlignedEdge =
+      if (e.from.toInt < e.to.toInt) then e else getReverseEdge(e)
+    val allEdges                                      = facesReps.zipWithIndex.flatMap((rep, i) =>
+      this.traverseEdgesAlignedFace(rep, false).toSeq.dropRight(1).map(edgeSortedFromTo(_)).map(l => (i, l)),
+    )
+    val groupedEdges                                  = allEdges.groupBy((_, edge) => edge)
+    val edgeToFaceMap                                 = groupedEdges.map((k, v) => (k, v.map((face, _) => face)))
+    val bothEdgesToFaceMap                            = edgeToFaceMap.flatMap((k, v) => Seq((k, v), (getReverseEdge(k), v)))
+    bothEdgesToFaceMap
   end getMapEdgeToAdjacentFace
 
   def getCornerDirections(e1: AlignedEdge, e2: AlignedEdge): Option[(Direction, Direction)] =
@@ -660,10 +669,10 @@ private case class AGImpl[Graph](
   case class AlignedEdgeWFaces(e: AlignedEdge, neigborRight: Int, neigborLeft: Int);
 
   case class FaceWithEdgesPerDirection(
-      var topEdges: Seq[AlignedEdge] = Seq.empty,
-      var leftEdges: Seq[AlignedEdge] = Seq.empty,
-      var bottomEdges: Seq[AlignedEdge] = Seq.empty,
-      var rightEdges: Seq[AlignedEdge] = Seq.empty,
+      var topEdges: Seq[AlignedEdge],
+      var leftEdges: Seq[AlignedEdge],
+      var bottomEdges: Seq[AlignedEdge],
+      var rightEdges: Seq[AlignedEdge],
   ):
     def update(edges: Seq[AlignedEdge], dir: Direction) =
       dir match
@@ -671,30 +680,46 @@ private case class AGImpl[Graph](
         case Direction.East  => rightEdges = edges
         case Direction.South => bottomEdges = edges
         case Direction.West  => leftEdges = edges
+
+    def getInDirection(dir: Direction): Seq[AlignedEdge] =
+      dir match
+        case Direction.North => topEdges
+        case Direction.East  => rightEdges
+        case Direction.South => bottomEdges
+        case Direction.West  => leftEdges
+
   end FaceWithEdgesPerDirection
 
-  def createFlowNetwork(): DefaultDirectedGraph[Integer, DefaultEdge] =
+  object FaceWithEdgesPerDirection:
+    def empty: FaceWithEdgesPerDirection =
+      FaceWithEdgesPerDirection(Seq.empty, Seq.empty, Seq.empty, Seq.empty)
+
+  def createFlowNetwork(dir: Direction = Direction.North): DefaultDirectedGraph[Integer, DefaultEdge] =
     // create a node for each (inner) face
     val g = DefaultDirectedGraph[Integer, DefaultEdge](classOf[DefaultEdge]);
 
     val faceReps = getOneEdgePerFace()
 
-    val innerFaceReps = faceReps.filter(f => !isOuterFace(f));
+    // val innerFaceReps = faceReps.filter(f => !isOuterFace(f));
+    val outerFaceIndex = faceReps.zipWithIndex.filter((f, _) => isOuterFace(f)).map((_, i) => i)
 
-    for i <- 0 to innerFaceReps.length do g.addVertex(i)
+    if outerFaceIndex.isEmpty then sys.error("No outer face found!")
+
+    for i <- 0 to faceReps.length do g.addVertex(i)
     end for
 
     val s = g.vertexSet().size()
     g.addVertex(s)
-    val t = g.vertexSet().size()
-    g.addVertex(t)
+
+    val t = outerFaceIndex(0)
 
     // get map from edge to faces
     val edgeToFaceMap = getMapEdgeToAdjacentFace(faceReps)
 
     var faceToEdgesInDir = faceReps
-      .map(_ => FaceWithEdgesPerDirection()) // mutable.IndexedBuffer[FaceWithEdgesPerDirection]().empty
+      .map(_ => FaceWithEdgesPerDirection.empty) // mutable.IndexedBuffer[FaceWithEdgesPerDirection]().empty
 
+    // set for each direction for each face the bounding edges
     for i <- 0 to faceReps.length - 1 do
       for dir <- Direction.values.toSeq do
         val edgesInDirection = getAllEdgesOfFaceInDirection(i, faceReps.toIndexedSeq, dir, isOuterFace(faceReps(i)))
@@ -702,7 +727,22 @@ private case class AGImpl[Graph](
         currentFace.update(edgesInDirection, dir)
       end for
     end for
+    // add directed edges to graph
+    for i <- 0 to faceReps.length - 1 do
+      val edgesInDirection    = faceToEdgesInDir(i).getInDirection(if !isOuterFace(faceReps(i)) then dir else dir.reverse)
+      val allNeighboringFaces = edgesInDirection.flatMap(e => edgeToFaceMap.get(e).getOrElse(Seq.empty)).filter(_ != i)
+      for face <- allNeighboringFaces do g.addEdge(i, face)
+      end for
+    end for
+    // connect s to the remaining graph
+    val outerFace = faceToEdgesInDir(outerFaceIndex(0))
 
+    val allOuterEdges = outerFace.getInDirection(dir.reverse)
+    for e <- allOuterEdges do
+      val _ = g.addEdge(s, e.to.toInt)
+    end for
+
+    val allEdges = g.edgeSet.toArray().toSeq
     g
 
   end createFlowNetwork
