@@ -738,10 +738,15 @@ private case class AGImpl[Graph](
     // connect s to the remaining graph
     val outerFace = faceToEdgesInDir(outerFaceIndex(0))
     val edgesInDirection    = outerFace.getInDirection(dir.reverse)
-    val allNeighboringFaces = edgesInDirection.flatMap(e => edgeToFaceMap.get(e).getOrElse(Seq.empty)).filter(_ != s)
+    val allNeighboringFaces = edgesInDirection.flatMap(e => edgeToFaceMap.get(e).getOrElse(Seq.empty))
+      .filter(f => f != s && f != t)
     allNeighboringFaces.foreach(g.addEdge(s, _))
 
+    // backflow
+    g.addEdge(t, s)
+
     val allEdges = g.edgeSet.toArray().toSeq
+
     g
 
   end createFlowNetwork
