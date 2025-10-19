@@ -13,7 +13,7 @@ import org.jgrapht.alg.flow.mincost.MinimumCostFlowProblem.MinimumCostFlowProble
 import org.jgrapht.alg.interfaces.MinimumCostFlowAlgorithm.MinimumCostFlow
 import org.jgrapht.alg.flow.mincost.MinimumCostFlowProblem
 import java.util.Map.Entry
-import scala.jdk.CollectionConverters._
+import scala.jdk.CollectionConverters.*
 
 // reverseIndex: Position in der Adjazenzliste der toNode, von dem Link zur aktuellen fromNode
 case class AlignedLink(toNode: NodeIndex, reverseIndex: Int, direction: Direction) derives CanEqual:
@@ -85,7 +85,9 @@ trait AlignedOps:
 
   def getBottomRightCornerNode(seq: Seq[AlignedEdge]): NodeIndex
 
-  def createFlowNetwork(dir: Direction = Direction.North): DefaultDirectedGraph[Integer, DefaultEdge]
+  def createFlowNetwork(dir: Direction = Direction.North): DefaultDirectedGraph[Int, DefaultEdge]
+
+  def solveFlowNetwork(network: org.jgrapht.Graph[Int, DefaultEdge]): Seq[(DefaultEdge, Double)]
 
 end AlignedOps
 
@@ -694,9 +696,9 @@ private case class AGImpl[Graph](
     def empty: FaceWithEdgesPerDirection =
       FaceWithEdgesPerDirection(Seq.empty, Seq.empty, Seq.empty, Seq.empty)
 
-  def createFlowNetwork(dir: Direction = Direction.North): DefaultDirectedGraph[Integer, DefaultEdge] =
+  def createFlowNetwork(dir: Direction = Direction.North): DefaultDirectedGraph[Int, DefaultEdge] =
     // create a node for each (inner) face
-    val g = DefaultDirectedGraph[Integer, DefaultEdge](classOf[DefaultEdge]);
+    val g = DefaultDirectedGraph[Int, DefaultEdge](classOf[DefaultEdge]);
 
     val faceReps = getOneEdgePerFace()
 
@@ -719,6 +721,10 @@ private case class AGImpl[Graph](
     var faceToEdgesInDir = faceReps
       .map(_ => FaceWithEdgesPerDirection.empty) // mutable.IndexedBuffer[FaceWithEdgesPerDirection]().empty
 
+    var flowEdgeToEdgeMap: mutable.Map[DefaultEdge, AlignedEdge] = mutable.Map.empty;
+
+    var allFlowEdgesAndOriginal: Seq[(DefaultEdge, AlignedEdge)] = Seq.empty;
+
     // set for each direction for each face the bounding edges
     for i <- 0 to faceReps.length - 1 do
       for dir <- Direction.values.toSeq do
@@ -730,22 +736,29 @@ private case class AGImpl[Graph](
     // add directed edges to graph
     for i <- 0 to faceReps.length - 1 do
       if !isOuterFace(faceReps(i)) then
-        val edgesInDirection    = faceToEdgesInDir(i).getInDirection(dir)
-        val allNeighboringFaces = edgesInDirection.flatMap(e => edgeToFaceMap.get(e).getOrElse(Seq.empty))
-          .filter(_ != i)
-        allNeighboringFaces.foreach(g.addEdge(i, _))
+        val edgesInDirection                                                         = faceToEdgesInDir(i).getInDirection(dir)
+        val allNeighboringFaces: Seq[(adjFace: Int, correspondingEdge: AlignedEdge)] = edgesInDirection
+          .flatMap(e => (edgeToFaceMap.get(e).getOrElse(Seq.empty).map((_, e)))).filter((f, _) => f != i)
+        val newFlowEdges                                                             = allNeighboringFaces
+          .map(faceWithEdge => (g.addEdge(i, faceWithEdge.adjFace), faceWithEdge.correspondingEdge))
+        allFlowEdgesAndOriginal.++=(newFlowEdges);
     end for
     // connect s to the remaining graph
     val outerFace = faceToEdgesInDir(outerFaceIndex(0))
-    val edgesInDirection    = outerFace.getInDirection(dir.reverse)
-    val allNeighboringFaces = edgesInDirection.flatMap(e => edgeToFaceMap.get(e).getOrElse(Seq.empty))
-      .filter(f => f != s && f != t)
-    allNeighboringFaces.foreach(g.addEdge(s, _))
-
+    val edgesInDirection                                                         = outerFace.getInDirection(dir.reverse)
+    // val allNeighboringFaces                                                      = edgesInDirection.flatMap(e => edgeToFaceMap.get(e).getOrElse(Seq.empty)).filter(f => f != s && f != t)
+    // allNeighboringFaces.foreach(g.addEdge(s, _))
+    val allNeighboringFaces: Seq[(adjFace: Int, correspondingEdge: AlignedEdge)] = edgesInDirection
+      .flatMap(e => (edgeToFaceMap.get(e).getOrElse(Seq.empty).map((_, e)))).filter((f, _) => f != s && f != t)
+    val newFlowEdges                                                             = allNeighboringFaces
+      .map(faceWithEdge => (g.addEdge(s, faceWithEdge.adjFace), faceWithEdge.correspondingEdge))
+    allFlowEdgesAndOriginal.++=(newFlowEdges);
     // backflow
     g.addEdge(t, s)
 
     val allEdges = g.edgeSet.toArray().toSeq
+
+    val mapFlowEdgeToEdge = allFlowEdgesAndOriginal.toMap
 
     g
 
@@ -784,5 +797,18 @@ private case class AGImpl[Graph](
     keyMap.entrySet().asScala.toSeq.map(entry => (entry.getKey(), entry.getValue()))
 
   end solveFlowNetwork
+
+  def determineEdgeLength(): Unit =
+    val dissectedGraph = this.rectangularDissection();
+
+    val verticalFlowNetwork = dissectedGraph.createFlowNetwork(Direction.North)
+
+    val horizontalFlowNetwork = dissectedGraph.createFlowNetwork(Direction.East)
+
+    val horizontalEdgeLengths = solveFlowNetwork(verticalFlowNetwork)
+
+    val verticalEdgeLegnths = solveFlowNetwork(horizontalFlowNetwork)
+
+  end determineEdgeLength
 
 end AGImpl
