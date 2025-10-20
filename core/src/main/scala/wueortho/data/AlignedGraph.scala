@@ -85,9 +85,13 @@ trait AlignedOps:
 
   def getBottomRightCornerNode(seq: Seq[AlignedEdge]): NodeIndex
 
-  def createFlowNetwork(dir: Direction = Direction.North): DefaultDirectedGraph[Int, DefaultEdge]
+  def createFlowNetwork(
+      dir: Direction = Direction.North,
+  ): (DefaultDirectedGraph[Int, DefaultEdge], Map[DefaultEdge, AlignedEdge])
 
   def solveFlowNetwork(network: org.jgrapht.Graph[Int, DefaultEdge]): Seq[(DefaultEdge, Double)]
+
+  def determineEdgeLength(): Unit
 
 end AlignedOps
 
@@ -696,7 +700,9 @@ private case class AGImpl[Graph](
     def empty: FaceWithEdgesPerDirection =
       FaceWithEdgesPerDirection(Seq.empty, Seq.empty, Seq.empty, Seq.empty)
 
-  def createFlowNetwork(dir: Direction = Direction.North): DefaultDirectedGraph[Int, DefaultEdge] =
+  def createFlowNetwork(
+      dir: Direction = Direction.North,
+  ): (DefaultDirectedGraph[Int, DefaultEdge], Map[DefaultEdge, AlignedEdge]) =
     // create a node for each (inner) face
     val g = DefaultDirectedGraph[Int, DefaultEdge](classOf[DefaultEdge]);
 
@@ -760,7 +766,7 @@ private case class AGImpl[Graph](
 
     val mapFlowEdgeToEdge = allFlowEdgesAndOriginal.toMap
 
-    g
+    (g, mapFlowEdgeToEdge)
 
   end createFlowNetwork
 
@@ -770,7 +776,7 @@ private case class AGImpl[Graph](
 
     val nodeDemand: java.util.function.Function[Int, Integer] = (_: Int) => 0
 
-    val minArcCapacityFunc: java.util.function.Function[DefaultEdge, Integer] = (_: DefaultEdge) => 0
+    val minArcCapacityFunc: java.util.function.Function[DefaultEdge, Integer] = (_: DefaultEdge) => 1
 
     val maxArcCapacityFunc: java.util.function.Function[DefaultEdge, Integer] = (_: DefaultEdge) =>
       CapacityScalingMinimumCostFlow.CAP_INF
@@ -781,8 +787,8 @@ private case class AGImpl[Graph](
       MinimumCostFlowProblemImpl[Int, DefaultEdge](
         network,
         nodeDemand,
-        minArcCapacityFunc,
         maxArcCapacityFunc,
+        minArcCapacityFunc,
         // costFunc,
       )
 
@@ -801,13 +807,19 @@ private case class AGImpl[Graph](
   def determineEdgeLength(): Unit =
     val dissectedGraph = this.rectangularDissection();
 
-    val verticalFlowNetwork = dissectedGraph.createFlowNetwork(Direction.North)
+    val (verticalFlowNetwork, verticalArcToEdgeMap) = dissectedGraph.createFlowNetwork(Direction.North)
 
-    val horizontalFlowNetwork = dissectedGraph.createFlowNetwork(Direction.East)
+    val (horizontalFlowNetwork, horizontalArcToEdgeMap) = dissectedGraph.createFlowNetwork(Direction.East)
 
-    val horizontalEdgeLengths = solveFlowNetwork(verticalFlowNetwork)
+    val horizontalArcLengths = solveFlowNetwork(verticalFlowNetwork)
 
-    val verticalEdgeLegnths = solveFlowNetwork(horizontalFlowNetwork)
+    val verticalArcLegnths = solveFlowNetwork(horizontalFlowNetwork)
+
+    val horEdgeLengths = horizontalArcLengths.filter((e, _) => verticalArcToEdgeMap.contains(e))
+      .map((e, len) => (verticalArcToEdgeMap(e), len))
+
+    val vertEdgeLengths = verticalArcLegnths.filter((e, _) => horizontalArcToEdgeMap.contains(e))
+      .map((e, len) => (horizontalArcToEdgeMap(e), len))
 
   end determineEdgeLength
 
