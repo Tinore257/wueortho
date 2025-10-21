@@ -93,6 +93,8 @@ trait AlignedOps:
 
   def determineEdgeLength(): Unit
 
+  def getDissectedEdges(edge: AlignedEdge): Seq[AlignedEdge]
+
 end AlignedOps
 
 trait AlignedGraph extends Graph[AlignedLink, AlignedEdge], AlignedOps
@@ -731,7 +733,7 @@ private case class AGImpl[Graph](
 
     var allFlowEdgesAndOriginal: Seq[(DefaultEdge, AlignedEdge)] = Seq.empty;
 
-    // set for each direction for each face the bounding edges
+    // set for each face for each direction the bounding edges
     for i <- 0 to faceReps.length - 1 do
       for dir <- Direction.values.toSeq do
         val edgesInDirection = getAllEdgesOfFaceInDirection(i, faceReps.toIndexedSeq, dir, isOuterFace(faceReps(i)))
@@ -752,25 +754,25 @@ private case class AGImpl[Graph](
     // connect s to the remaining graph
     val outerFace = faceToEdgesInDir(outerFaceIndex(0))
     val edgesInDirection                                                         = outerFace.getInDirection(dir.reverse)
-    // val allNeighboringFaces                                                      = edgesInDirection.flatMap(e => edgeToFaceMap.get(e).getOrElse(Seq.empty)).filter(f => f != s && f != t)
-    // allNeighboringFaces.foreach(g.addEdge(s, _))
     val allNeighboringFaces: Seq[(adjFace: Int, correspondingEdge: AlignedEdge)] = edgesInDirection
       .flatMap(e => (edgeToFaceMap.get(e).getOrElse(Seq.empty).map((_, e)))).filter((f, _) => f != s && f != t)
     val newFlowEdges                                                             = allNeighboringFaces
       .map(faceWithEdge => (g.addEdge(s, faceWithEdge.adjFace), faceWithEdge.correspondingEdge))
     allFlowEdgesAndOriginal.++=(newFlowEdges);
-    // backflow
+    // flow back
     g.addEdge(t, s)
 
     val allEdges = g.edgeSet.toArray().toSeq
 
-    val mapFlowEdgeToEdge = allFlowEdgesAndOriginal.toMap
+    val mapFlowArcToEdge = allFlowEdgesAndOriginal.toMap
 
-    (g, mapFlowEdgeToEdge)
+    (g, mapFlowArcToEdge)
 
   end createFlowNetwork
 
-  case class AlignedEdgeWithLength(edge: AlignedEdge, length: Int)
+  case class AlignedEdgeWithLength(edge: AlignedEdge, length: Int):
+    def toAlignedEdge(): AlignedEdge =
+      edge
 
   def solveFlowNetwork(network: org.jgrapht.Graph[Int, DefaultEdge]): Seq[(DefaultEdge, Double)] =
 
@@ -817,22 +819,20 @@ private case class AGImpl[Graph](
     * @param edge
     * @return
     */
-  def getOriginalEdges(edge: AlignedEdge): Seq[AlignedEdge] =
+  def getDissectedEdges(edge: AlignedEdge): Seq[AlignedEdge] =
     var result: Seq[AlignedLink] = Seq.empty
     if edges.contains(edge) then return Seq(edge)
     else if vertices(edge.from.toInt).neighbors.exists(l => l.direction == edge.direction) then
       result = result.appended(vertices(edge.from.toInt).neighbors.find(l => l.direction == edge.direction).get)
-      while (result.last.toNode != edge.to) do
-        // TODO: Catch case, where there is no edge in the specific direction
-        if vertices(result.last.toNode.toInt).neighbors.exists(l => l.direction == edge.direction) then
-          result = result.appended(vertices(result.last.toNode.toInt).neighbors.find(_.direction == edge.direction).get)
-        else return alignedLinksToAlignedEdges(edge.from, result);
+      while (result.last.toNode != edge.to) && vertices(result.last.toNode.toInt).neighbors
+          .exists(_.direction == edge.direction)
+      do result = result.appended(vertices(result.last.toNode.toInt).neighbors.find(_.direction == edge.direction).get)
       end while
       return alignedLinksToAlignedEdges(edge.from, result)
     end if
 
     Seq.empty
-  end getOriginalEdges
+  end getDissectedEdges
 
   def determineEdgeLength(): Unit =
     val dissectedGraph = this.rectangularDissection();
@@ -851,10 +851,15 @@ private case class AGImpl[Graph](
     val vertEdgeLengths = verticalArcLegnths.filter((e, _) => horizontalArcToEdgeMap.contains(e))
       .map((e, len) => AlignedEdgeWithLength(horizontalArcToEdgeMap(e), len.toInt))
 
-    val dissectedGraphWithLength = horEdgeLengths.++(vertEdgeLengths)
+    val dissectedEdgesWithLength = horEdgeLengths.++(vertEdgeLengths)
 
-    val originalEdgesWithLength = dissectedGraphWithLength
-      .filter(e => e._1.from.toInt < this.vertices.length && e._1.to.toInt < this.vertices.length)
+    // val dissectedGraphWithLength = AlignedWithLengthGraph.fromAlignedWithLengthEdges(dissectedEdgesWithLength)
+    //  .mkAlignedWithLengthGraph
+
+    // val originalEdgesWithLength = dissectedGraphWithLength
+    //  .filter(e => e._1.from.toInt < this.vertices.length && e._1.to.toInt < this.vertices.length)
+
+    val originalEdgesWithLength = edges.map(e => dissectedGraph.getDissectedEdges(e))
 
     val x = 0;
 
