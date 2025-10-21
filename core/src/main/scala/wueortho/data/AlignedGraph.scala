@@ -804,6 +804,36 @@ private case class AGImpl[Graph](
 
   end solveFlowNetwork
 
+  def alignedLinksToAlignedEdges(startNode: NodeIndex, links: Seq[AlignedLink]): Seq[AlignedEdge] =
+    if links.isEmpty then return Seq.empty
+    val res = links.foldLeft(Seq(AlignedEdge(startNode, links(0).toNode, links(0).direction)))((acc, link) =>
+      acc.appended(AlignedEdge(acc.last.to, link.toNode, link.direction)),
+    )
+    res
+  end alignedLinksToAlignedEdges
+
+  /** returns the original edge given an edge of the dissected graph
+    *
+    * @param edge
+    * @return
+    */
+  def getOriginalEdges(edge: AlignedEdge): Seq[AlignedEdge] =
+    var result: Seq[AlignedLink] = Seq.empty
+    if edges.contains(edge) then return Seq(edge)
+    else if vertices(edge.from.toInt).neighbors.exists(l => l.direction == edge.direction) then
+      result = result.appended(vertices(edge.from.toInt).neighbors.find(l => l.direction == edge.direction).get)
+      while (result.last.toNode != edge.to) do
+        // TODO: Catch case, where there is no edge in the specific direction
+        if vertices(result.last.toNode.toInt).neighbors.exists(l => l.direction == edge.direction) then
+          result = result.appended(vertices(result.last.toNode.toInt).neighbors.find(_.direction == edge.direction).get)
+        else return alignedLinksToAlignedEdges(edge.from, result);
+      end while
+      return alignedLinksToAlignedEdges(edge.from, result)
+    end if
+
+    Seq.empty
+  end getOriginalEdges
+
   def determineEdgeLength(): Unit =
     val dissectedGraph = this.rectangularDissection();
 
@@ -816,10 +846,17 @@ private case class AGImpl[Graph](
     val verticalArcLegnths = solveFlowNetwork(horizontalFlowNetwork)
 
     val horEdgeLengths = horizontalArcLengths.filter((e, _) => verticalArcToEdgeMap.contains(e))
-      .map((e, len) => (verticalArcToEdgeMap(e), len))
+      .map((e, len) => AlignedEdgeWithLength(verticalArcToEdgeMap(e), len.toInt))
 
     val vertEdgeLengths = verticalArcLegnths.filter((e, _) => horizontalArcToEdgeMap.contains(e))
-      .map((e, len) => (horizontalArcToEdgeMap(e), len))
+      .map((e, len) => AlignedEdgeWithLength(horizontalArcToEdgeMap(e), len.toInt))
+
+    val dissectedGraphWithLength = horEdgeLengths.++(vertEdgeLengths)
+
+    val originalEdgesWithLength = dissectedGraphWithLength
+      .filter(e => e._1.from.toInt < this.vertices.length && e._1.to.toInt < this.vertices.length)
+
+    val x = 0;
 
   end determineEdgeLength
 
