@@ -10,8 +10,16 @@ case class AlignedWithLengthLink(toNode: NodeIndex, reverseIndex: Int, direction
     derives CanEqual:
   def unweight = AlignedLink(toNode, reverseIndex, direction)
 
-case class AlignedWithLengthEdge(from: NodeIndex, to: NodeIndex, direction: Direction, length: Int) derives CanEqual:
-  def unweight = AlignedEdge(from, to, direction)
+case class AlignedWithLengthEdge(
+    from: NodeIndex = NodeIndex(0),
+    to: NodeIndex = NodeIndex(0),
+    direction: Direction = Direction.North,
+    length: Int = 0,
+) derives CanEqual:
+  def unweight                                        = AlignedEdge(from, to, direction)
+  def fromAlignedEdge(edge: AlignedEdge, length: Int) =
+    AlignedWithLengthEdge(edge.from, edge.to, edge.direction, length)
+end AlignedWithLengthEdge
 
 trait AlignedWithLengthOps:
 

@@ -770,10 +770,6 @@ private case class AGImpl[Graph](
 
   end createFlowNetwork
 
-  case class AlignedEdgeWithLength(edge: AlignedEdge, length: Int):
-    def toAlignedEdge(): AlignedEdge =
-      edge
-
   def solveFlowNetwork(network: org.jgrapht.Graph[Int, DefaultEdge]): Seq[(DefaultEdge, Double)] =
 
     val nodeDemand: java.util.function.Function[Int, Integer] = (_: Int) => 0
@@ -846,15 +842,15 @@ private case class AGImpl[Graph](
     val verticalArcLegnths = solveFlowNetwork(horizontalFlowNetwork)
 
     val horEdgeLengths = horizontalArcLengths.filter((e, _) => verticalArcToEdgeMap.contains(e))
-      .map((e, len) => AlignedEdgeWithLength(verticalArcToEdgeMap(e), len.toInt))
+      .map((e, len) => AlignedWithLengthEdge().fromAlignedEdge(verticalArcToEdgeMap(e), len.toInt))
 
     val vertEdgeLengths = verticalArcLegnths.filter((e, _) => horizontalArcToEdgeMap.contains(e))
-      .map((e, len) => AlignedEdgeWithLength(horizontalArcToEdgeMap(e), len.toInt))
+      .map((e, len) => AlignedWithLengthEdge().fromAlignedEdge(horizontalArcToEdgeMap(e), len.toInt))
 
     val dissectedEdgesWithLength = horEdgeLengths.++(vertEdgeLengths)
 
-    // val dissectedGraphWithLength = AlignedWithLengthGraph.fromAlignedWithLengthEdges(dissectedEdgesWithLength)
-    //  .mkAlignedWithLengthGraph
+    val dissectedGraphWithLength = AlignedWithLengthGraph.fromAlignedWithLengthEdges(dissectedEdgesWithLength)
+      .mkAlignedWithLengthGraph
 
     // val originalEdgesWithLength = dissectedGraphWithLength
     //  .filter(e => e._1.from.toInt < this.vertices.length && e._1.to.toInt < this.vertices.length)
