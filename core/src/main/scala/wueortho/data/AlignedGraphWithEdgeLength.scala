@@ -23,7 +23,8 @@ end AlignedWithLengthEdge
 
 trait AlignedWithLengthOps:
 
-//def getDissectedEdges(edge: AlignedEdge): Seq[AlignedEdge]
+  // def getDissectedEdges(edge: AlignedEdge): Seq[AlignedEdge]
+  def getDissectedEdges(edge: AlignedEdge): Seq[AlignedWithLengthEdge]
 
 end AlignedWithLengthOps
 
@@ -96,4 +97,41 @@ private case class AwLGImpl[Graph](
   override def vertices            = nodes
   override lazy val edges          =
     mkEdges(nodes, (u, l) => AlignedWithLengthEdge(u, l.toNode, l.direction, l.length), _.unweight.unalign)
+  end edges
+
+  /** @param startNode
+    * @param links
+    * @return
+    */
+  def linksToEdges(startNode: NodeIndex, links: Seq[AlignedWithLengthLink]): Seq[AlignedWithLengthEdge] =
+    if links.isEmpty then return Seq.empty
+    val res = links.foldLeft(
+      Seq(AlignedWithLengthEdge(startNode, startNode, links(0).direction, links(0).length)),
+    )((acc, link) => acc.appended(AlignedWithLengthEdge(acc.last.to, link.toNode, link.direction, link.length)))
+    res.drop(1)
+  end linksToEdges
+
+  /** returns the original edge given an edge of the dissected graph
+    *
+    * @param edge
+    * @return
+    */
+  def getDissectedEdges(edge: AlignedEdge): Seq[AlignedWithLengthEdge] =
+    var result: Seq[AlignedWithLengthLink] = Seq.empty
+    var originalEdge                       = edges.find(e => e.from == edge.from && e.to == edge.to && e.direction == edge.direction)
+    if originalEdge.isDefined then return Seq(originalEdge.get)
+    else if vertices(edge.from.toInt).neighbors.exists(l => l.direction == edge.direction) then
+      // result = result.appended(vertices(edge.from.toInt).neighbors.find(l => l.direction == edge.direction).get)
+      while result.isEmpty || (result.last.toNode != edge.to && vertices(result.last.toNode.toInt).neighbors
+          .exists(_.direction == edge.direction))
+      do
+        val lastNode = if result.isEmpty then edge.from else result.last.toNode
+        result = result.appended(vertices(lastNode.toInt).neighbors.find(_.direction == edge.direction).get)
+      end while
+      return linksToEdges(edge.from, result)
+    end if
+
+    Seq.empty
+  end getDissectedEdges
+
 end AwLGImpl
