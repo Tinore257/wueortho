@@ -23,8 +23,9 @@ end AlignedWithLengthEdge
 
 trait AlignedWithLengthOps:
 
-  // def getDissectedEdges(edge: AlignedEdge): Seq[AlignedEdge]
   def getDissectedEdges(edge: AlignedEdge): Seq[AlignedWithLengthEdge]
+
+  def getPositions(): Seq[Vec2D]
 
 end AlignedWithLengthOps
 
@@ -133,5 +134,35 @@ private case class AwLGImpl[Graph](
 
     Seq.empty
   end getDissectedEdges
+
+  def getPositionFromNeigbor(linkToNeigbor: AlignedWithLengthLink, position: Vec2D): Vec2D =
+    linkToNeigbor.direction match
+      case Direction.North => Vec2D(position.x1, position.x2 - linkToNeigbor.length)
+      case Direction.East  => Vec2D(position.x1 + linkToNeigbor.length, position.x2)
+      case Direction.South => Vec2D(position.x1, position.x2 + linkToNeigbor.length)
+      case Direction.West  => Vec2D(position.x1 - linkToNeigbor.length, position.x2)
+  end getPositionFromNeigbor
+
+  def getPositions(): Seq[Vec2D] =
+    if vertices.isEmpty then Seq.empty
+    var unvisitedNodes: mutable.Set[NodeIndex] = vertices.indices.map(NodeIndex(_)).to(mutable.Set)
+    var fronteer: mutable.Set[NodeIndex]       = mutable.Set()
+    val position: mutable.IndexedBuffer[Vec2D] = vertices.indices.map(_ => Vec2D(0, 0)).to(mutable.IndexedBuffer)
+    while !unvisitedNodes.isEmpty || !fronteer.isEmpty do
+      val currentNode         = if fronteer.isEmpty then unvisitedNodes.last else fronteer.last
+      unvisitedNodes.-=(currentNode)
+      fronteer.-=(currentNode)
+      val neigborLinksWithPos = vertices(currentNode.toInt).neighbors.filter(n => !unvisitedNodes.contains(n.toNode))
+        .map(l => (l, position(l.toNode.toInt)))
+      if neigborLinksWithPos.isEmpty then position(currentNode.toInt) = Vec2D(0.0, 0.0)
+      else
+        val newPos    = neigborLinksWithPos.map((l, pos) => getPositionFromNeigbor(l, pos))
+        val isAllSame = newPos.distinct.size == 1
+        if !isAllSame then sys.error("position of neigbors did not match up with edge length!")
+        position(currentNode.toInt) = newPos.last
+      fronteer.++=(vertices(currentNode.toInt).neighbors.map(_.toNode).filter(unvisitedNodes.contains(_)))
+    end while
+    position.toSeq
+  end getPositions
 
 end AwLGImpl

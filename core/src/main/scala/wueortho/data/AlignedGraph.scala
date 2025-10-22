@@ -839,6 +839,9 @@ private case class AGImpl[Graph](
       .map((length, edge) => AlignedWithLengthEdge(edge.from, edge.to, edge.direction, length))
 
     val graphWithEdgeLength = AlignedWithLengthGraph.fromAlignedWithLengthEdges(accumulatedEdgeLengths)
+      .mkAlignedWithLengthGraph
+
+    val nodePositions = graphWithEdgeLength.getPositions()
 
     val x = 0;
 
