@@ -20,6 +20,8 @@ import wueortho.util.mutable.LinearIntervalTree
 import scala.collection.mutable.ArrayBuffer
 import scala.compiletime.ops.double
 import wueortho.routing.OrthogonalVisibilityGraph.neighbor
+import wueortho.data.AlignedEdge
+import wueortho.data.AlignedGraph
 
 object GreedyOrthogonalization:
 
@@ -48,7 +50,7 @@ object GreedyOrthogonalization:
     return result.toSeq
   end topologicalSort
 
-  def layout(graph: WeightedGraph, init: VertexLayout, boxes: VertexBoxes): VertexLayout =
+  def greedyAlignedGraph(graph: WeightedGraph, init: VertexLayout, boxes: VertexBoxes): AlignedGraph =
     val n = graph.numberOfVertices
 
     class PosVec(init: Seq[Vec2D]):
@@ -63,7 +65,7 @@ object GreedyOrthogonalization:
 
     val pos = PosVec(init.nodes);
 
-    if n < 2 then return VertexLayout(pos.finish)
+    if n < 2 then return AlignedGraph.fromAlignedEdges(Seq.empty).mkAlignedGraph
 
     given Monoid[Set[NodeIndex]] with
       def zero: Set[NodeIndex]                                                 = Set.empty
@@ -71,6 +73,8 @@ object GreedyOrthogonalization:
 
     val verticalSets   = DisjointSets[NodeIndex, Set[NodeIndex]]
     val horizontalSets = DisjointSets[NodeIndex, Set[NodeIndex]]
+
+    var alingedEdges: Set[AlignedEdge] = Set.empty;
 
     Range(0, graph.numberOfVertices).foreach(i => verticalSets.mkSet(NodeIndex(i), Set(NodeIndex(i))))
     Range(0, graph.numberOfVertices).foreach(i => horizontalSets.mkSet(NodeIndex(i), Set(NodeIndex(i))))
@@ -164,7 +168,6 @@ object GreedyOrthogonalization:
       case Direction.North | Direction.South => // verticalSets.contains(e.from) && verticalSets.contains(e.to)
         (verticalSets.contains(e.from) && verticalSets.getOrElseThrow(e.from).contains(e.to))
 
-    // TODO: edge-case class
     case class Candidate(dir: Direction, weight: Double, edge: (Int, Int))
 
     for (vertex, deg) <- verticesOrderedByDegree do
@@ -208,6 +211,7 @@ object GreedyOrthogonalization:
                 case Direction.West | Direction.East   => horizontalSets
               val edge = candidate.edge
               val _    = sets.union(NodeIndex(edge._1), NodeIndex(edge._2))
+              alingedEdges.+=(AlignedEdge(NodeIndex(candidate.edge._1), NodeIndex(candidate.edge._2), candidate.dir))
       end for
       // save assignments for node
       localAssignments.filter(e => e._2 != (-1, -1)).foreach(a => assignments(a._2._1)(a._1.ordinal) = a)
@@ -219,19 +223,12 @@ object GreedyOrthogonalization:
     println(s"vertical Sets: ${verticalSets.values.foldLeft("")((s, e) => s.concat(e.toString()).toString())}")
     println(s"horizontal Sets: ${horizontalSets.values.foldLeft("")((s, e) => s.concat(e.toString()).toString())}")
 
-    // ##########################################################################
-    // TODO: Anstelle von Positionen, sollte der Graph so ausgegeben werden, das die
-    // ausgerichteten Kanten bekannt sind, und die Knoten, die nicht ausgerichtet sind.
-    // ##########################################################################
-
-    def isVertical(dir: Direction) = dir match
-      case Direction.East | Direction.West => false
-      case _                               => true
-
-    // rotate all points
     val alignedPos = pos.finish
 
-    VertexLayout(alignedPos)
-  end layout
+    // create alignedGraph
+    val alignedGraph = AlignedGraph.fromAlignedEdges(alingedEdges.toSeq).mkAlignedGraph
+
+    alignedGraph
+  end greedyAlignedGraph
 
 end GreedyOrthogonalization
