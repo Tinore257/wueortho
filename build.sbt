@@ -3,13 +3,14 @@
 
 import Deps._
 
-ThisBuild / scalaVersion := "3.5.2"
+ThisBuild / scalaVersion := "3.7.0"
 ThisBuild / organization := "de.wueortho"
 ThisBuild / version      := "0.1.2"
 ThisBuild / scalacOptions ++= compilerOptions
 
 lazy val core = project.settings(
   name := "wueortho-core",
+  libraryDependencies ++= Seq("org.jgrapht" % "jgrapht-core" % "1.5.2"),
 )
 
 lazy val io = project.settings(
@@ -19,7 +20,7 @@ lazy val io = project.settings(
 
 lazy val layout = project.settings(
   name := "wueortho-layout",
-  libraryDependencies ++= tinfour +: orTools +: scalatest,
+  libraryDependencies ++= (tinfour +: orTools +: scalatest),
 ).dependsOn(core)
 
 lazy val pipeline = project.settings(
@@ -27,14 +28,15 @@ lazy val pipeline = project.settings(
   libraryDependencies ++= circe ++ scalatest,
 ).dependsOn(core, io, layout)
 
+/*
 lazy val praline = project.settings(
   name := "wueortho-praline",
   libraryDependencies ++= jackson +: batik +: scalatest,
   javacOptions ++= Seq("-source", "17"),
-).dependsOn(pipeline)
+).dependsOn(pipeline) */
 
-lazy val root = (project in file(".")).settings(publish / skip := true).aggregate(core, io, layout, pipeline, praline)
-  .dependsOn(pipeline, praline)
+lazy val root = (project in file(".")).settings(publish / skip := true).aggregate(core, io, layout, pipeline)
+  .dependsOn(pipeline)
 
 lazy val compilerOptions = Seq(
   "-source:future",
@@ -48,6 +50,7 @@ lazy val compilerOptions = Seq(
   "-Wconf:any:verbose",
   "-Wunused:all",
   "-Wvalue-discard",
+  "-rewrite -source 3.7-migration",
 )
 
 enablePlugins(JavaAppPackaging)

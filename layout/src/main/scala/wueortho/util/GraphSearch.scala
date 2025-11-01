@@ -47,7 +47,7 @@ object GraphSearch:
   )(using DijkstraCost[C, T]): Either[DijkstraError, Path] =
     val dist  = mutable.Map(s -> c0)
     val ptrs  = mutable.Map(s -> -1)
-    val queue = mutable.PriorityQueue(c0 -> s)(implicitly[Ordering[(C, NodeIndex)]].reverse)
+    val queue = mutable.PriorityQueue(c0 -> s)(using Ordering[(C, NodeIndex)].reverse)
 
     def bestPath =
       @tailrec def go(node: NodeIndex, path: List[NodeIndex]): Either[DijkstraError, List[NodeIndex]] =
