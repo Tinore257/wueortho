@@ -22,6 +22,8 @@ import scala.compiletime.ops.double
 import wueortho.routing.OrthogonalVisibilityGraph.neighbor
 import wueortho.data.AlignedEdge
 import wueortho.data.AlignedGraph
+import wueortho.data.BasicGraph
+import wueortho.util.GraphConversions.sg2dg
 
 object GreedyOrthogonalization:
 
@@ -50,7 +52,7 @@ object GreedyOrthogonalization:
     return result.toSeq
   end topologicalSort
 
-  def greedyAlignedGraph(graph: WeightedGraph, init: VertexLayout, boxes: VertexBoxes): AlignedGraph =
+  def greedyAlignedGraph(graph: BasicGraph, init: VertexLayout, boxes: VertexBoxes): AlignedGraph =
     val n = graph.numberOfVertices
 
     class PosVec(init: Seq[Vec2D]):
@@ -89,7 +91,7 @@ object GreedyOrthogonalization:
       math.atan2((e2.x2 - e1.x2), (e2.x1 - e1.x1))
 
     // TODO: assumes, that graph is undirected weighted graph
-    val undirectedGraph = wg2wd(graph)
+    val undirectedGraph = sg2dg(graph)
 
     val allEdges = undirectedGraph.edges
 
@@ -107,7 +109,7 @@ object GreedyOrthogonalization:
       val semiAxisAngle = directionToAngle(dir)
       Math.abs(angle - semiAxisAngle) min Math.abs(angle - Math.PI * 2 - semiAxisAngle)
 
-    def intersect(e1: WeightedEdge, e2: WeightedEdge): Boolean =
+    def intersect(e1: SimpleEdge, e2: SimpleEdge): Boolean =
 
       // test for shared endpoint
       if pos(e1.from.toInt) != pos(e1.to.toInt) && pos(e2.from.toInt) != pos(e2.to.toInt) then
@@ -115,7 +117,7 @@ object GreedyOrthogonalization:
             .map(_.take(2).reduce(_ - _).len == 0).reduce(_ || _)
         then return false
 
-      def orientationTest(e: WeightedEdge, node: NodeIndex): Double =
+      def orientationTest(e: SimpleEdge, node: NodeIndex): Double =
         val p = pos(e.from.toInt)
         val q = pos(e.to.toInt)
         val r = pos(node.toInt)
@@ -161,7 +163,7 @@ object GreedyOrthogonalization:
     val verticesOrderedByDegree = undirectedGraph.vertices.zipWithIndex.map((v, i) => (i, v.neighbors.length))
       .sortBy((_, l) => l).reverse
 
-    def isAligned(e: WeightedEdge, dir: Direction) = dir match
+    def isAligned(e: SimpleEdge, dir: Direction) = dir match
       case Direction.East | Direction.West   =>
         // horizontalSets.contains(e.from) && horizontalSets.contains(e.to)
         (horizontalSets.contains(e.from) && horizontalSets.getOrElseThrow(e.from).contains(e.to))
@@ -176,7 +178,7 @@ object GreedyOrthogonalization:
         .map(d => Candidate(d, Double.PositiveInfinity, (0, 0))).sortBy(_.dir.ordinal)
 
       // get for each direction edge within 45 degrees with minimal costs
-      for neighbor <- undirectedGraph.vertices(vertex).neighbors.map(v => v.toNode.toInt) do
+      for neighbor <- undirectedGraph.vertices(vertex).neighbors.map(v => v.toInt) do
         for dir <- Direction.values do
           val cost = edgeAlignmentCost(allEdgeAngles(vertex, neighbor), dir)
           if minCosts(dir.ordinal)._2 > cost && math.abs(cost) < Math.PI / 4
@@ -199,7 +201,7 @@ object GreedyOrthogonalization:
             if graph.edges.map(e =>
                 !(isAligned(e, candidate.dir) && intersect(
                   e,
-                  WeightedEdge(NodeIndex(candidate.edge._1), NodeIndex(candidate.edge._2), 1.0),
+                  SimpleEdge(NodeIndex(candidate.edge._1), NodeIndex(candidate.edge._2)),
                 )),
               ).reduce(_ & _)
             then
