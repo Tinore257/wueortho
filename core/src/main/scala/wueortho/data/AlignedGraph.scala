@@ -91,7 +91,9 @@ trait AlignedOps:
 
   def solveFlowNetwork(network: org.jgrapht.Graph[Int, DefaultEdge]): Seq[(DefaultEdge, Double)]
 
-  def determineEdgeLength(): Unit
+  def determineEdgeLength(): Seq[AlignedWithLengthEdge]
+
+  def positionsFromEdgeLength(): VertexLayout
 
 end AlignedOps
 
@@ -808,7 +810,7 @@ private case class AGImpl[Graph](
     res
   end linksToEdges
 
-  def determineEdgeLength(): Unit =
+  def determineEdgeLength(): Seq[AlignedWithLengthEdge] =
     val dissectedGraph = this.rectangularDissection();
 
     val (verticalFlowNetwork, verticalArcToEdgeMap) = dissectedGraph.createFlowNetwork(Direction.North)
@@ -838,13 +840,21 @@ private case class AGImpl[Graph](
     val accumulatedEdgeLengths = originalEdgesWithLength.map(_.map(_.length).reduce(_ + _)).zip(edges)
       .map((length, edge) => AlignedWithLengthEdge(edge.from, edge.to, edge.direction, length))
 
-    val graphWithEdgeLength = AlignedWithLengthGraph.fromAlignedWithLengthEdges(accumulatedEdgeLengths)
-      .mkAlignedWithLengthGraph
-
-    val nodePositions = graphWithEdgeLength.getPositions()
-
-    val x = 0;
+    accumulatedEdgeLengths
 
   end determineEdgeLength
+
+  def positionsFromEdgeLength(): VertexLayout =
+
+    val accumulatedEdgeLengths = determineEdgeLength();
+
+    val graphWithEdgeLength = AlignedWithLengthGraph.fromAlignedWithLengthEdges(accumulatedEdgeLengths)
+      .mkAlignedWithLengthGraph;
+
+    val nodePositions = graphWithEdgeLength.getPositions();
+
+    VertexLayout(nodePositions.toIndexedSeq)
+
+  end positionsFromEdgeLength
 
 end AGImpl
