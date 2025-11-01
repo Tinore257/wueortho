@@ -137,10 +137,10 @@ private case class AwLGImpl[Graph](
 
   def getPositionFromNeigbor(linkToNeigbor: AlignedWithLengthLink, position: Vec2D): Vec2D =
     linkToNeigbor.direction match
-      case Direction.North => Vec2D(position.x1, position.x2 - linkToNeigbor.length)
-      case Direction.East  => Vec2D(position.x1 + linkToNeigbor.length, position.x2)
-      case Direction.South => Vec2D(position.x1, position.x2 + linkToNeigbor.length)
-      case Direction.West  => Vec2D(position.x1 - linkToNeigbor.length, position.x2)
+      case Direction.North => Vec2D(position.x1, position.x2 + linkToNeigbor.length)
+      case Direction.East  => Vec2D(position.x1 - linkToNeigbor.length, position.x2)
+      case Direction.South => Vec2D(position.x1, position.x2 - linkToNeigbor.length)
+      case Direction.West  => Vec2D(position.x1 + linkToNeigbor.length, position.x2)
   end getPositionFromNeigbor
 
   def getPositions(): Seq[Vec2D] =

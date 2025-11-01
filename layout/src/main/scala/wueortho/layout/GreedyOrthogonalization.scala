@@ -215,6 +215,9 @@ object GreedyOrthogonalization:
       localAssignments.filter(e => e._2 != (-1, -1))
         .foreach(a => assignments(a._2._2)(a._1.reverse.ordinal) = (a._1, (a._2._2, a._2._1)))
     end for
+    // ##########################################################################
+    // POSITIONING
+    // ##########################################################################
     // calculate (median) positions for each disjoint set and set nodes position to median
 
     /*

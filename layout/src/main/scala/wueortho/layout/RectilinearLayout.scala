@@ -157,6 +157,8 @@ end exampleGraph4
 
   val f = d.createFlowNetwork();
 
+  val g = graph.determineEdgeLength();
+
   val result = RectilinearLayout.tarjanHopcraft(graph)
   println("Done!");
 end main
