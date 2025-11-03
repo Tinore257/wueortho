@@ -83,7 +83,7 @@ trait AlignedOps:
 
   def rectangularDissection(): AlignedGraph
 
-  def getBottomRightCornerNode(seq: Seq[AlignedEdge]): NodeIndex
+  def getBottomRightCorner(seq: Seq[AlignedEdge]): NodeIndex
 
   def createFlowNetwork(
       dir: Direction = Direction.North,
@@ -518,21 +518,25 @@ private case class AGImpl[Graph](
     (res.toSeq, removedEdges.toSeq)
   end rectangularDissectFace
 
-  def getBottomRightCornerNode(seq: Seq[AlignedEdge]): NodeIndex =
-    val allBRCorners = seq.++(seq.take(1)).sliding(2).filter(l =>
-      isOuterFace(l(0)) && (l(0).direction == Direction.South && l(1).direction == Direction.West ||
+  def getBottomRightCorner(seq: Seq[AlignedEdge]): NodeIndex =
+    // val allConseqPairOnOuterFace = seq.++(seq.take(1)).sliding(2).filter(l => isOuterFace(l(0)))
+    val allConseqPairOnOuterFace = seq.sliding(2).filter(l => isOuterFace(l(0)))
+    val allBRCornersCandiates    = allConseqPairOnOuterFace.filter(l =>
+      (l(0).direction == Direction.East && l(1).direction == Direction.North ||
         l(0).direction == Direction.East && l(1).direction == Direction.West ||
         l(0).direction == Direction.South && l(1).direction == Direction.North),
-    ).map(l => l(0)).filter(x =>
+    ).toSeq
+    val allBRCorners             = allBRCornersCandiates.map(l => l(1).from)
+    /*val allBRCorners             = allBRCornersCandiates.map(l => l(1)).filter(x =>
       seq.find(e =>
         (e.direction == Direction.South && e.from == x.to) || (
           e.direction == Direction.North && e.to == x.to
         ),
       ).isEmpty,
-    ).map(_.to)
-    if allBRCorners.isEmpty then sys.error("Outer face does not contain any bottom right corener!")
-    allBRCorners.next()
-  end getBottomRightCornerNode
+    ).map(_.to) */
+    if allBRCorners.isEmpty then sys.error("Outer face does not contain any bottom right corner!")
+    allBRCorners(0)
+  end getBottomRightCorner
 
   def getAllFaces(): mutable.IndexedBuffer[Seq[AlignedEdge]] =
     def ensureSmallestEdgeFirst(face: Seq[AlignedEdge]): Seq[AlignedEdge] =
@@ -596,7 +600,7 @@ private case class AGImpl[Graph](
           else edgesAfterCompaction.newEdges.find(e => compactedGraph.isOuterFace(e)).get
         val debug                = compactedGraph.traverseEdgesAlignedFace(e, false).take(40).toSeq
         val outerFaceIter        = compactedGraph.traverseEdgesAlignedFace(e, false).toSeq
-        val nodeToOuterFace      = compactedGraph.getBottomRightCornerNode(
+        val nodeToOuterFace      = compactedGraph.getBottomRightCorner(
           outerFaceIter,
         )
         val edgesToBB            = Seq(
