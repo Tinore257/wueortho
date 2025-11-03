@@ -259,6 +259,7 @@ private case class AGImpl[Graph](
       private var startLink: Option[AlignedLink]   = None;
       private var isFirstLink                      = true;
       private var currentLink: Option[AlignedLink] = None;
+      private var counter                          = 0;
 
       def isStartLink(link: AlignedLink): Boolean =
         startLink.isDefined && link.equals(startLink.get)
@@ -284,6 +285,9 @@ private case class AGImpl[Graph](
         startLink match
           case Some(value) => ()
           case None        => startLink = Some(nextLink)
+
+        counter = counter + 1;
+        if counter > 2 * (vertices.length * 3 - 6) then sys.error("The provided graph can not be planar!")
         currentLink = Some(nextLink)
         current = nextLink.toNode
         currentDirection = nextLink.direction
