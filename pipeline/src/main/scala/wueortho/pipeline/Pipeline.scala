@@ -60,8 +60,9 @@ object Pipeline:
       res  <- Decoder.decodeJson.emapTry(impl.codec.decodeJson(_).toTry)
     yield res.asInstanceOf[WithTags[PipelineStep]]
 
-    def asJson(p: Pipeline) = Encoder.forProduct1("steps")((_: Pipeline).steps)(Encoder.encodeSeq(enc))(p)
-    def fromJson(j: Json)   = Decoder.forProduct1("steps")(Pipeline.apply)(Decoder.decodeSeq(dec)).decodeJson(j)
+    def asJson(p: Pipeline) = Encoder.forProduct1("steps")((_: Pipeline).steps)(using Encoder.encodeSeq(using enc))(p)
+    def fromJson(j: Json)   = Decoder.forProduct1("steps")(Pipeline.apply)(using Decoder.decodeSeq(using dec))
+      .decodeJson(j)
 
     def showHelpText = HelpText(id, impls)
   end RuntimeCommons
