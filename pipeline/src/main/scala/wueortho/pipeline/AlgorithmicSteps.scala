@@ -4,7 +4,7 @@
 package wueortho.pipeline
 
 import wueortho.data.*
-import wueortho.layout.{OrthogonalRotation , SGDStressMinimization, ForceDirected as FDLayout}
+import wueortho.layout.{OrthogonalRotation, SGDStressMinimization, ForceDirected as FDLayout}
 import wueortho.overlaps.Nachmanson
 import wueortho.ports.AngleHeuristic
 import wueortho.routing.*
@@ -21,6 +21,7 @@ import io.circe.derivation.ConfiguredEnumCodec
 
 import scala.util.Random
 import wueortho.layout.GreedyOrthogonalization
+import wueortho.layout.GreedyOrthogonalization.greedyAlignedGraph
 
 object AlgorithmicSteps:
 
@@ -54,9 +55,8 @@ object AlgorithmicSteps:
     end layout
   end given
 
-
   given StepImpl[step.SGDLayout] with
-    override transparent inline def stagesUsed = ("graph" -> Stage.Graph)
+    override transparent inline def stagesUsed     = ("graph" -> Stage.Graph)
     override transparent inline def stagesModified = Stage.Layout
 
     override def tags = GetSingleTag(stagesUsed)
@@ -70,16 +70,20 @@ object AlgorithmicSteps:
 
     override def runToStage(s: WithTags[step.SGDLayout], cache: StageCache) = for
       (graph) <- UseSingleStage(s, cache, stagesUsed)
-      res = layout(s.step.iterations, s.step.seed, s.step.repetitions, graph)
-      _ <- UpdateSingleStage(s, cache, stagesModified)(res.get)
+      res      = layout(s.step.iterations, s.step.seed, s.step.repetitions, graph)
+      _       <- UpdateSingleStage(s, cache, stagesModified)(res.get)
     yield res
 
     private def layout(iterations: Int, seed: Seed, repetitions: Int, graph: BasicGraph) =
-      val run = SGDStressMinimization.layout(SGDStressMinimization.defaultConfig.copy(iterCap = iterations))
-      val weighted = graph.withWeights(using GraphConversions.withUniformWeights(w = 1))
+      val run        = SGDStressMinimization.layout(SGDStressMinimization.defaultConfig.copy(iterCap = iterations))
+      val weighted   = graph.withWeights(using GraphConversions.withUniformWeights(w = 1))
       val baseRandom = seed.newRandom
-      val res = RunningTime.ofAll((1 to repetitions).toList, i => s"run#$i"): _ =>
-        val layout = run(Random(baseRandom.nextLong()),weighted, SGDStressMinimization.initLayout(Random(baseRandom.nextLong()), graph.numberOfVertices))
+      val res        = RunningTime.ofAll((1 to repetitions).toList, i => s"run#$i"): _ =>
+        val layout    = run(
+          Random(baseRandom.nextLong()),
+          weighted,
+          SGDStressMinimization.initLayout(Random(baseRandom.nextLong()), graph.numberOfVertices),
+        )
         val crossings = Crossings.numberOfCrossings(graph, layout)
         layout -> crossings
       res.map(_.minBy(_._2)._1)
@@ -99,22 +103,22 @@ object AlgorithmicSteps:
 
     override def runToStage(s: WithTags[step.OrthogonalRotationLayout], cache: StageCache) = for
       (inLayout, graph) <- UseStages(s, cache, stagesUsed)
-      _ <- UpdateSingleStage(s, cache, stagesModified)(layout( graph, inLayout))
+      _                 <- UpdateSingleStage(s, cache, stagesModified)(layout(graph, inLayout))
     yield noRt
 
     private def layout(graph: BasicGraph, init: VertexLayout) =
-      val run = OrthogonalRotation.layout
+      val run      = OrthogonalRotation.layout
       val weighted = graph.withWeights(using GraphConversions.withUniformWeights(w = 1))
-      val res = RunningTime.of("Rotate to maximize orthogonal edges")(() =>
-        run(weighted, init))
+      val res      = RunningTime.of("Rotate to maximize orthogonal edges")(() => run(weighted, init))
       res.get()
     end layout
   end given
 
   given StepImpl[step.GreedyOrthogonalization] with
-    override transparent inline def stagesUsed = ("layout" -> Stage.Layout, "graph" -> Stage.Graph, "VertexBoxes" -> Stage.VertexBoxes)
+    override transparent inline def stagesUsed =
+      ("layout" -> Stage.Layout, "graph" -> Stage.Graph, "VertexBoxes" -> Stage.VertexBoxes)
 
-    override transparent inline def stagesModified = Stage.Layout
+    override transparent inline def stagesModified = (Stage.GraphWithAlignments)
 
     override def tags = GetTags(stagesUsed)
 
@@ -124,16 +128,41 @@ object AlgorithmicSteps:
 
     override def runToStage(s: WithTags[step.GreedyOrthogonalization], cache: StageCache) = for
       (inLayout, graph, boxes) <- UseStages(s, cache, stagesUsed)
-      _ <- UpdateSingleStage(s, cache, stagesModified)(layout( graph, inLayout, boxes))
+      _                        <-
+        UpdateSingleStage(s, cache, stagesModified)(getAlignedSubGraph(graph, inLayout, boxes))
     yield noRt
 
-    private def layout(graph: BasicGraph, init: VertexLayout, boxes: VertexBoxes) =
-      val run = GreedyOrthogonalization.layout
-      val weighted = graph.withWeights(using GraphConversions.withUniformWeights(w = 1))
-      val res = RunningTime.of("Greedy direction assignment")(() =>
-        run(weighted, init, boxes))
+    private def getAlignedSubGraph(graph: BasicGraph, init: VertexLayout, boxes: VertexBoxes) =
+      val run = GreedyOrthogonalization.greedyAlignedGraph
+      val res = RunningTime.of("Greedy direction assignment")(() => run(graph, init, boxes))
       res.get()
-    end layout
+    end getAlignedSubGraph
+  end given
+
+  given StepImpl[step.LayoutAlignedEdges] with
+    override transparent inline def stagesUsed =
+      (
+        "layout"       -> Stage.Layout,
+        "graph"        -> Stage.Graph,
+        "AlignedGraph" -> Stage.GraphWithAlignments,
+      )
+
+    override transparent inline def stagesModified = Stage.Layout
+
+    override def tags = GetTags(stagesUsed)
+
+    override def helpText =
+      s"""Layouts aligned Edges using flow network minimalisation""".stripMargin
+
+    override def runToStage(s: WithTags[step.LayoutAlignedEdges], cache: StageCache) = for
+      (inLayout, graph, alignedSubGraph) <- UseStages(s, cache, stagesUsed)
+      _                                  <- UpdateSingleStage(s, cache, stagesModified)(layoutAlignedGraph(alignedSubGraph, inLayout))
+    yield noRt
+
+    private def layoutAlignedGraph(graph: AlignedGraph, init: VertexLayout) =
+      val res = RunningTime.of("Layouting of aligned edges")(() => graph.positionsFromEdgeLength())
+      res.get()
+    end layoutAlignedGraph
   end given
 
   given StepImpl[step.GTreeOverlaps] with

@@ -8,18 +8,19 @@ import wueortho.routing.{RoutingGraph, Routed}
 import java.util.concurrent.atomic.AtomicReference
 
 enum Stage[T]:
-  case Graph        extends Stage[BasicGraph]
-  case Layout       extends Stage[VertexLayout]
-  case VertexLabels extends Stage[Labels]
-  case VertexBoxes  extends Stage[VertexBoxes]
-  case Ports        extends Stage[PortLayout]
-  case PortLabels   extends Stage[Labels]
-  case RoutingGraph extends Stage[RoutingGraph]
-  case EdgeRouting  extends Stage[Routed]
-  case Routes       extends Stage[IndexedSeq[EdgeRoute]]
-  case Svg          extends Stage[String]
-  case Metadata     extends Stage[Metadata]
-  case ForeignData  extends Stage[AtomicReference[Any]]
+  case Graph               extends Stage[BasicGraph]
+  case Layout              extends Stage[VertexLayout]
+  case GraphWithAlignments extends Stage[AlignedGraph]
+  case VertexLabels        extends Stage[Labels]
+  case VertexBoxes         extends Stage[VertexBoxes]
+  case Ports               extends Stage[PortLayout]
+  case PortLabels          extends Stage[Labels]
+  case RoutingGraph        extends Stage[RoutingGraph]
+  case EdgeRouting         extends Stage[Routed]
+  case Routes              extends Stage[IndexedSeq[EdgeRoute]]
+  case Svg                 extends Stage[String]
+  case Metadata            extends Stage[Metadata]
+  case ForeignData         extends Stage[AtomicReference[Any]]
 end Stage
 
 object Stage:

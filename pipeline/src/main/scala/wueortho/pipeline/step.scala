@@ -21,21 +21,22 @@ object step:
   import CoreStep as CS
 
   // input steps
-  case class RandomGraph(n: Int, m: Int, seed: Seed, core: GraphCore, allowLoops: Boolean)          extends CS derives CC
-  case class GridGraph(rows: Int, columns: Int, size: Double, gap: Double, diagonalEdges: Boolean)  extends CS derives CC
-  case class RandomVertexBoxes(minSpan: Vec2D, maxSpan: Vec2D, seed: Seed)                          extends CS derives CC
-  case class UniformVertexBoxes(span: Vec2D)                                                        extends CS derives CC
+  case class RandomGraph(n: Int, m: Int, seed: Seed, core: GraphCore, allowLoops: Boolean)         extends CS derives CC
+  case class GridGraph(rows: Int, columns: Int, size: Double, gap: Double, diagonalEdges: Boolean) extends CS derives CC
+  case class RandomVertexBoxes(minSpan: Vec2D, maxSpan: Vec2D, seed: Seed)                         extends CS derives CC
+  case class UniformVertexBoxes(span: Vec2D)                                                       extends CS derives CC
   // todo ApplyLayout = move boxes to match Layout | LayoutFromBoxes = create layout from vertex boxes
-  case class SyntheticVertexLabels(config: SyntheticLabels)                                         extends CS derives CC
-  case class SyntheticPortLabels(config: SyntheticLabels)                                           extends CS derives CC
-  case class BoxesFromLabels(config: VertexLabelConfig)                                             extends CS derives CC
-  case class ReadTglfFile(path: FSPath, use: List[TglfExtractor])                                   extends CS derives CC
+  case class SyntheticVertexLabels(config: SyntheticLabels)                                        extends CS derives CC
+  case class SyntheticPortLabels(config: SyntheticLabels)                                          extends CS derives CC
+  case class BoxesFromLabels(config: VertexLabelConfig)                                            extends CS derives CC
+  case class ReadTglfFile(path: FSPath, use: List[TglfExtractor])                                  extends CS derives CC
 
   // algo steps
   case class ForceDirectedLayout(iterations: Int, seed: Seed, repetitions: Int)         extends CS derives CC
   case class SGDLayout(iterations: Int, seed: Seed, repetitions: Int)                   extends CS derives CC
   case class OrthogonalRotationLayout()                                                 extends CS derives CC
-  case class GreedyOrthogonalization()                                                 extends CS derives CC
+  case class GreedyOrthogonalization()                                                  extends CS derives CC
+  case class LayoutAlignedEdges()                                                       extends CS derives CC
   case class GTreeOverlaps(stretch: Stretch, seed: Seed, forceGeneralPosition: Boolean) extends CS derives CC
   case class StretchBoxes(stretch: Stretch)                                             extends CS derives CC
   case class PortsByAngle(mode: PortMode)                                               extends CS derives CC
