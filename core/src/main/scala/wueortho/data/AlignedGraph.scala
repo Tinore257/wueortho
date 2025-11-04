@@ -87,7 +87,7 @@ trait AlignedOps:
 
   def createFlowNetwork(
       dir: Direction = Direction.North,
-  ): (DefaultDirectedGraph[Int, DefaultEdge], Map[DefaultEdge, AlignedEdge])
+  ): (DefaultDirectedGraph[Int, DefaultEdge], Map[DefaultEdge, Seq[AlignedEdge]])
 
   def solveFlowNetwork(network: org.jgrapht.Graph[Int, DefaultEdge]): Seq[(DefaultEdge, Double)]
 
@@ -712,7 +712,7 @@ private case class AGImpl[Graph](
 
   def createFlowNetwork(
       dir: Direction = Direction.North,
-  ): (DefaultDirectedGraph[Int, DefaultEdge], Map[DefaultEdge, AlignedEdge]) =
+  ): (DefaultDirectedGraph[Int, DefaultEdge], Map[DefaultEdge, Seq[AlignedEdge]]) =
     // create a node for each (inner) face
     val g = DefaultDirectedGraph[Int, DefaultEdge](classOf[DefaultEdge]);
 
@@ -755,8 +755,15 @@ private case class AGImpl[Graph](
         val edgesInDirection                                                         = faceToEdgesInDir(i).getInDirection(dir)
         val allNeighboringFaces: Seq[(adjFace: Int, correspondingEdge: AlignedEdge)] = edgesInDirection
           .flatMap(e => (edgeToFaceMap.get(e).getOrElse(Seq.empty).map((_, e)))).filter((f, _) => f != i)
-        val newFlowEdges                                                             = allNeighboringFaces
-          .map(faceWithEdge => (g.addEdge(i, faceWithEdge.adjFace), faceWithEdge.correspondingEdge))
+        // TODO: Es können eine oder mehrer Facetten benachbart sein. Falls nur eine Facette über
+        // mehere Kanten adjazent sind, wird der Arc nur einmal hinzugefügt, für alle anderen gibt
+        // das hinzufügen "null" zurück, weil die Kante bereits existiert => vorher groupBy adjazent Face,
+        // dann den Arc hinzufügen und für alle gruppierten Kanten, den Arc setzen
+        val allNeighboringFacesGroupedByFace                                         = allNeighboringFaces.groupBy(faceWithEdge => faceWithEdge.adjFace)
+        val newArcWithAllEdges                                                       = allNeighboringFacesGroupedByFace
+          .map(groupedfaceWithEdge => (g.addEdge(i, groupedfaceWithEdge._1), groupedfaceWithEdge._2)).toSeq
+        val newFlowEdges                                                             = newArcWithAllEdges
+          .flatMap((newArc, faceWithEdge) => faceWithEdge.map(e => (newArc, e.correspondingEdge)).toSeq)
         allFlowEdgesAndOriginal.++=(newFlowEdges);
     end for
     // connect s to the remaining graph
@@ -772,7 +779,8 @@ private case class AGImpl[Graph](
 
     val allEdges = g.edgeSet.toArray().toSeq
 
-    val mapFlowArcToEdge = allFlowEdgesAndOriginal.toMap
+    val mapFlowArcToEdge = allFlowEdgesAndOriginal.groupBy(arcAndEdge => arcAndEdge._1).map((k, v) => (k, v.map(_._2)))
+      .toMap
 
     (g, mapFlowArcToEdge)
 
