@@ -1,19 +1,12 @@
 package wueortho.data
 import scala.collection.mutable
 import scala.collection.AbstractIterator
-import wueortho.util.GraphConversions.all
-import scala.compiletime.ops.long
-import scala.compiletime.ops.double
 import scala.collection.mutable.IndexedBuffer
-import org.jgrapht.graph.DefaultDirectedGraph
 import org.jgrapht.graph.DefaultEdge
-import scala.collection.immutable.HashMap
 import org.jgrapht.alg.flow.mincost.CapacityScalingMinimumCostFlow
 import org.jgrapht.alg.flow.mincost.MinimumCostFlowProblem.MinimumCostFlowProblemImpl
-import org.jgrapht.alg.interfaces.MinimumCostFlowAlgorithm.MinimumCostFlow
-import org.jgrapht.alg.flow.mincost.MinimumCostFlowProblem
-import java.util.Map.Entry
 import scala.jdk.CollectionConverters.*
+import org.jgrapht.graph.DirectedMultigraph
 
 // reverseIndex: Position in der Adjazenzliste der toNode, von dem Link zur aktuellen fromNode
 case class AlignedLink(toNode: NodeIndex, reverseIndex: Int, direction: Direction) derives CanEqual:
@@ -87,7 +80,7 @@ trait AlignedOps:
 
   def createFlowNetwork(
       dir: Direction = Direction.North,
-  ): (DefaultDirectedGraph[Int, DefaultEdge], Map[DefaultEdge, Seq[AlignedEdge]])
+  ): (DirectedMultigraph[Int, DefaultEdge], Map[DefaultEdge, AlignedEdge])
 
   def solveFlowNetwork(network: org.jgrapht.Graph[Int, DefaultEdge]): Seq[(DefaultEdge, Double)]
 
@@ -712,9 +705,9 @@ private case class AGImpl[Graph](
 
   def createFlowNetwork(
       dir: Direction = Direction.North,
-  ): (DefaultDirectedGraph[Int, DefaultEdge], Map[DefaultEdge, Seq[AlignedEdge]]) =
+  ): (DirectedMultigraph[Int, DefaultEdge], Map[DefaultEdge, AlignedEdge]) =
     // create a node for each (inner) face
-    val g = DefaultDirectedGraph[Int, DefaultEdge](classOf[DefaultEdge]);
+    val g = DirectedMultigraph[Int, DefaultEdge](classOf[DefaultEdge]);
 
     val faceReps = getOneEdgePerFace()
 
@@ -759,11 +752,10 @@ private case class AGImpl[Graph](
         // mehere Kanten adjazent sind, wird der Arc nur einmal hinzugefügt, für alle anderen gibt
         // das hinzufügen "null" zurück, weil die Kante bereits existiert => vorher groupBy adjazent Face,
         // dann den Arc hinzufügen und für alle gruppierten Kanten, den Arc setzen
-        val allNeighboringFacesGroupedByFace                                         = allNeighboringFaces.groupBy(faceWithEdge => faceWithEdge.adjFace)
-        val newArcWithAllEdges                                                       = allNeighboringFacesGroupedByFace
-          .map(groupedfaceWithEdge => (g.addEdge(i, groupedfaceWithEdge._1), groupedfaceWithEdge._2)).toSeq
-        val newFlowEdges                                                             = newArcWithAllEdges
-          .flatMap((newArc, faceWithEdge) => faceWithEdge.map(e => (newArc, e.correspondingEdge)).toSeq)
+        val newFlowEdges                                                             = allNeighboringFaces
+          .map(faceWithEdge => (g.addEdge(i, faceWithEdge.adjFace), faceWithEdge.correspondingEdge)).toSeq
+        // val newFlowEdges                                                             = newArcWithAllEdges
+        //  .flatMap((newArc, faceWithEdge) => faceWithEdge.map(e => (newArc, e.correspondingEdge)).toSeq)
         allFlowEdgesAndOriginal.++=(newFlowEdges);
     end for
     // connect s to the remaining graph
@@ -779,8 +771,7 @@ private case class AGImpl[Graph](
 
     val allEdges = g.edgeSet.toArray().toSeq
 
-    val mapFlowArcToEdge = allFlowEdgesAndOriginal.groupBy(arcAndEdge => arcAndEdge._1).map((k, v) => (k, v.map(_._2)))
-      .toMap
+    val mapFlowArcToEdge = allFlowEdgesAndOriginal.toMap
 
     (g, mapFlowArcToEdge)
 
