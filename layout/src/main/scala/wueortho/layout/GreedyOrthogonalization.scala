@@ -104,8 +104,8 @@ object GreedyOrthogonalization:
 
       // test for shared endpoint
       if pos(e1.from.toInt) != pos(e1.to.toInt) && pos(e2.from.toInt) != pos(e2.to.toInt) then
-        if (e1.from :: e1.to :: e2.from :: e2.to :: Nil).map(id => pos(id.toInt)).permutations
-            .map(_.take(2).reduce(_ - _).len == 0).reduce(_ || _)
+        if Seq(e1.from, e1.to, e2.from, e2.to).map(id => pos(id.toInt)).combinations(2)
+            .exists(_.reduce(_ - _).len != 0)
         then return false
 
       def orientationTest(e: SimpleEdge, node: NodeIndex): Double =
