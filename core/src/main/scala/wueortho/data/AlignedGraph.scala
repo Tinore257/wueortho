@@ -753,23 +753,43 @@ private case class AGImpl[Graph](
   end intersect
 
   def planarize(pos: VertexLayout): AlignedGraph =
-    
-    given Monoid[Set[AlignedEdge]]:
-      def zero: Set[AlignedEdge]                                                 = Set.empty
-      override def apply(a: Set[AlignedEdge], b: Set[AlignedEdge]): Set[AlignedEdge] = a union b
-    
-    val intersectingEdges   = DisjointSets[AlignedEdge, Set[AlignedEdge]]
-    var intersectingPairs: Set[(AlignedEdge, AlignedEdge)] = Set.empty
 
-    var removedEdges: Set[AlignedEdge] = Set.empty
-    edges.combinations(2).foreach(
-        l => 
-          l.filter(!intersectingEdges.contains(_)).foreach(e => intersectingEdges.mkSet(e, Set(e)))
-          if intersect(l(0), l(1), pos) then
-            removedEdges.++=(l)
-            intersectingEdges.union(l(0), l(1)):Unit
-            intersectingPairs = intersectingPairs.+((l(0), l(1)))
-    )
+    def splitEdgeIntersection(
+        e1: AlignedEdge,
+        e2: AlignedEdge,
+        pos: VertexLayout,
+        crossNodeIndex: NodeIndex,
+    ): (newEdges: Seq[AlignedEdge], newPos: Vec2D) =
+      def split(edge: AlignedEdge, crossNodeIndex: NodeIndex): Seq[AlignedEdge] =
+        Seq(
+          AlignedEdge(edge.from, crossNodeIndex, edge.direction),
+          AlignedEdge(crossNodeIndex, edge.to, edge.direction),
+        )
+      end split
+      if !intersect(e1, e2, pos) then sys.error("Edges do not intersect")
+      val newEdges                                                              = split(e1, crossNodeIndex).++(split(e2, crossNodeIndex))
+      // TODO: berechne den Line-Line intersection Punkt
+    end splitEdgeIntersection
+
+    var removedEdges: Set[AlignedEdge]          = Set.empty
+    val edgesBuffer: IndexedBuffer[AlignedEdge] = edges.to(IndexedBuffer)
+    val nextNodeIndex                           = vertices.length
+
+    var i = 0
+    while i < edgesBuffer.length do
+      var j = i
+      while j < edgesBuffer.length do
+        val (e1, e2) = (edgesBuffer(i), edgesBuffer(j))
+        if intersect(e1, e2, pos) then
+          // TODO: calculate the new Edges
+          val splittedEdges: Seq[AlignedEdge] = Seq.empty
+          edgesBuffer ++= (splittedEdges)
+          removedEdges ++= (Set(e1, e2))
+          j = edges.length
+        j = j + 1
+      end while
+      i = i + 1
+    end while
 
     var addedEdges: Set[AlignedEdge] = Set.empty;
     // TODO: Add edges based on disjoint sets
@@ -798,8 +818,8 @@ object DisjointSets:
     def asInt(t: T): Int
 
   object AsInt:
-    given AsInt[Int]       = identity
-    given AsInt[NodeIndex] = _.toInt
+    given AsInt[Int]         = identity
+    given AsInt[NodeIndex]   = _.toInt
     given AsInt[AlignedEdge] = _.asInt
 
   extension [K: AsInt](k: K) def asInt = summon[AsInt[K]].asInt(k)
