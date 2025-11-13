@@ -3,23 +3,14 @@
 
 package wueortho.layout
 
-import wueortho.data.{Vec2D, VertexLayout, WeightedGraph}
+import wueortho.data.{Vec2D, VertexLayout}
 import wueortho.data.Direction
 import scala.collection.mutable
-import wueortho.data.WeightedEdge
 import wueortho.util.mutable.DisjointSets
 import wueortho.util.Monoid
 import wueortho.data.NodeIndex
-import wueortho.util.GraphConversions.wg2wd
-import wueortho.data.Graph
 import wueortho.data.SimpleEdge
 import wueortho.data.VertexBoxes
-import wueortho.data.WeightedDiGraph
-import wueortho.util.mutable.LinearIntervalTree.Interval
-import wueortho.util.mutable.LinearIntervalTree
-import scala.collection.mutable.ArrayBuffer
-import scala.compiletime.ops.double
-import wueortho.routing.OrthogonalVisibilityGraph.neighbor
 import wueortho.data.AlignedEdge
 import wueortho.data.AlignedGraph
 import wueortho.data.BasicGraph
@@ -69,7 +60,7 @@ object GreedyOrthogonalization:
 
     if n < 2 then return AlignedGraph.fromAlignedEdges(Seq.empty).mkAlignedGraph
 
-    given Monoid[Set[NodeIndex]] with
+    given Monoid[Set[NodeIndex]]:
       def zero: Set[NodeIndex]                                                 = Set.empty
       override def apply(a: Set[NodeIndex], b: Set[NodeIndex]): Set[NodeIndex] = a union b
 
@@ -172,7 +163,7 @@ object GreedyOrthogonalization:
 
     case class Candidate(dir: Direction, weight: Double, edge: (Int, Int))
 
-    for (vertex, deg) <- verticesOrderedByDegree do
+    for (vertex, _) <- verticesOrderedByDegree do
       // calculate cost function for all edges starting at v
       val minCosts: mutable.IndexedSeq[Candidate] = Direction.values
         .map(d => Candidate(d, Double.PositiveInfinity, (0, 0))).sortBy(_.dir.ordinal)

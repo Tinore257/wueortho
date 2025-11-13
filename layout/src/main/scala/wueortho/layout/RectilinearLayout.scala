@@ -7,7 +7,6 @@ import wueortho.data.Direction
 import wueortho.data.NodeIndex
 
 import scala.collection.mutable
-import wueortho.data.TopologicalOrdering
 
 def exampleGraph1(): AlignedGraph =
   val alignedEdges: Seq[AlignedEdge] =

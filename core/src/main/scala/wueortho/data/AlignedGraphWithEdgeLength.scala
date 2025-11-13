@@ -1,10 +1,5 @@
 package wueortho.data
 import scala.collection.mutable
-import scala.collection.AbstractIterator
-import wueortho.util.GraphConversions.all
-import scala.compiletime.ops.long
-import scala.compiletime.ops.double
-import scala.collection.mutable.IndexedBuffer
 
 case class AlignedWithLengthLink(toNode: NodeIndex, reverseIndex: Int, direction: Direction, length: Int)
     derives CanEqual:
@@ -119,7 +114,7 @@ private case class AwLGImpl[Graph](
     */
   def getDissectedEdges(edge: AlignedEdge): Seq[AlignedWithLengthEdge] =
     var result: Seq[AlignedWithLengthLink] = Seq.empty
-    var originalEdge                       = edges.find(e => e.from == edge.from && e.to == edge.to && e.direction == edge.direction)
+    val originalEdge                       = edges.find(e => e.from == edge.from && e.to == edge.to && e.direction == edge.direction)
     if originalEdge.isDefined then return Seq(originalEdge.get)
     else if vertices(edge.from.toInt).neighbors.exists(l => l.direction == edge.direction) then
       // result = result.appended(vertices(edge.from.toInt).neighbors.find(l => l.direction == edge.direction).get)
@@ -144,9 +139,9 @@ private case class AwLGImpl[Graph](
   end getPositionFromNeigbor
 
   def getPositions(): Seq[Vec2D] =
-    if vertices.isEmpty then Seq.empty
-    var unvisitedNodes: mutable.Set[NodeIndex] = vertices.indices.map(NodeIndex(_)).to(mutable.Set)
-    var fronteer: mutable.Set[NodeIndex]       = mutable.Set()
+    if vertices.isEmpty then return Seq.empty
+    val unvisitedNodes: mutable.Set[NodeIndex] = vertices.indices.map(NodeIndex(_)).to(mutable.Set)
+    val fronteer: mutable.Set[NodeIndex]       = mutable.Set()
     val position: mutable.IndexedBuffer[Vec2D] = vertices.indices.map(_ => Vec2D(0, 0)).to(mutable.IndexedBuffer)
     while !unvisitedNodes.isEmpty || !fronteer.isEmpty do
       val currentNode         = if fronteer.isEmpty then unvisitedNodes.last else fronteer.last

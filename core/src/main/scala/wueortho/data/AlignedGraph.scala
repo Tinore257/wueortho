@@ -261,8 +261,8 @@ private case class AGImpl[Graph](
       //  .isDefined && !(currentLink.get.equals(startLink.get)))) && !nodes(current.toInt).neighbors.isEmpty
       def next(): AlignedLink                     =
         startLink match
-          case Some(link) => isFirstLink = false
-          case None       => ()
+          case Some(_) => isFirstLink = false
+          case None    => ()
 
         def getFirstExistingDir(node: NodeIndex, startDir: Direction, nextDir: Direction => Direction): Direction =
           val currentDir = nextDir(startDir)
@@ -478,7 +478,6 @@ private case class AGImpl[Graph](
     val recentEdges: mutable.IndexedBuffer[AlignedEdge] = mutable.IndexedBuffer.empty
     var lastDirectionLink                               = startEdge
     val faceIterator                                    = this.traverseEdgesAlignedFace(startEdge, false, true)
-    val debug                                           = this.traverseEdgesAlignedFace(startEdge, false, true).take(40).toSeq
     var stop                                            = false
     var startNodeCounter                                = 0
     while !stop do
@@ -539,8 +538,8 @@ private case class AGImpl[Graph](
       sortedFace
     end ensureSmallestEdgeFirst
 
-    var unhandledEdges                                   = this.edges.to(IndexedBuffer)
-    var faceEdgeCandidate: mutable.Set[Seq[AlignedEdge]] = mutable.Set().empty
+    val unhandledEdges                                   = this.edges.to(IndexedBuffer)
+    val faceEdgeCandidate: mutable.Set[Seq[AlignedEdge]] = mutable.Set().empty
     while unhandledEdges.size > 0 do
       val edge           = unhandledEdges.toSeq(0)
       val edgesFromFace1 = Seq(edge).++(traverseEdgesAlignedFace(edge, false).toSeq).dropRight(2)
@@ -586,12 +585,12 @@ private case class AGImpl[Graph](
         allEdges = allEdges.++(edgesAfterCompaction.newEdges).toSet.--(allReplaced)
         val compactedGraph       = AlignedGraph.fromAlignedEdges(allEdges.toSeq).mkAlignedGraph
         // after compaction e might no longer lay on the outer face
-        val x                    = edgesAfterCompaction.newEdges.flatMap(e => Seq(e, getReverseEdge(e)))
-          .map(e => (e, compactedGraph.isOuterFace(e)))
+        // TODO: For debugging
+        // val x                    = edgesAfterCompaction.newEdges.flatMap(e => Seq(e, getReverseEdge(e)))
+        //  .map(e => (e, compactedGraph.isOuterFace(e)))
         e =
           if edgesAfterCompaction.newEdges.isEmpty then e
           else edgesAfterCompaction.newEdges.find(e => compactedGraph.isOuterFace(e)).get
-        val debug                = compactedGraph.traverseEdgesAlignedFace(e, false).take(40).toSeq
         val outerFaceIter        = compactedGraph.traverseEdgesAlignedFace(e, false).toSeq
         val nodeToOuterFace      = compactedGraph.getBottomRightCorner(
           outerFaceIter,
@@ -727,10 +726,10 @@ private case class AGImpl[Graph](
     // get map from edge to faces
     val edgeToFaceMap = getMapEdgeToAdjacentFace(faceReps)
 
-    var faceToEdgesInDir = faceReps
+    val faceToEdgesInDir = faceReps
       .map(_ => FaceWithEdgesPerDirection.empty) // mutable.IndexedBuffer[FaceWithEdgesPerDirection]().empty
 
-    var flowEdgeToEdgeMap: mutable.Map[DefaultEdge, AlignedEdge] = mutable.Map.empty;
+    val flowEdgeToEdgeMap: mutable.Map[DefaultEdge, AlignedEdge] = mutable.Map.empty;
 
     var allFlowEdgesAndOriginal: Seq[(DefaultEdge, AlignedEdge)] = Seq.empty;
 

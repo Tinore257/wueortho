@@ -21,7 +21,6 @@ import io.circe.derivation.ConfiguredEnumCodec
 
 import scala.util.Random
 import wueortho.layout.GreedyOrthogonalization
-import wueortho.layout.GreedyOrthogonalization.greedyAlignedGraph
 
 object AlgorithmicSteps:
 
@@ -55,7 +54,7 @@ object AlgorithmicSteps:
     end layout
   end given
 
-  given StepImpl[step.SGDLayout] with
+  given StepImpl[step.SGDLayout]:
     override transparent inline def stagesUsed     = ("graph" -> Stage.Graph)
     override transparent inline def stagesModified = Stage.Layout
 
@@ -90,7 +89,7 @@ object AlgorithmicSteps:
     end layout
   end given
 
-  given StepImpl[step.OrthogonalRotationLayout] with
+  given StepImpl[step.OrthogonalRotationLayout]:
     override transparent inline def stagesUsed = ("layout" -> Stage.Layout, "graph" -> Stage.Graph)
 
     override transparent inline def stagesModified = Stage.Layout
@@ -114,7 +113,7 @@ object AlgorithmicSteps:
     end layout
   end given
 
-  given StepImpl[step.GreedyOrthogonalization] with
+  given StepImpl[step.GreedyOrthogonalization]:
     override transparent inline def stagesUsed =
       ("layout" -> Stage.Layout, "graph" -> Stage.Graph, "VertexBoxes" -> Stage.VertexBoxes)
 
@@ -139,7 +138,7 @@ object AlgorithmicSteps:
     end getAlignedSubGraph
   end given
 
-  given StepImpl[step.LayoutAlignedEdges] with
+  given StepImpl[step.LayoutAlignedEdges]:
     override transparent inline def stagesUsed =
       (
         "layout"       -> Stage.Layout,
