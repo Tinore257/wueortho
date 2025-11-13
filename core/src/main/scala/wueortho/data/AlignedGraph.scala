@@ -7,6 +7,8 @@ import org.jgrapht.alg.flow.mincost.CapacityScalingMinimumCostFlow
 import org.jgrapht.alg.flow.mincost.MinimumCostFlowProblem.MinimumCostFlowProblemImpl
 import scala.jdk.CollectionConverters.*
 import org.jgrapht.graph.DirectedMultigraph
+import wueortho.util.Monoid
+import wueortho.data.DisjointSets.AsInt
 
 // reverseIndex: Position in der Adjazenzliste der toNode, von dem Link zur aktuellen fromNode
 case class AlignedLink(toNode: NodeIndex, reverseIndex: Int, direction: Direction) derives CanEqual:
@@ -746,4 +748,108 @@ private case class AGImpl[Graph](
 
   end positionsFromEdgeLength
 
+  def intersect(e1: AlignedEdge, e2: AlignedEdge, pos: VertexLayout): Boolean =
+    false
+  end intersect
+
+  def planarize(pos: VertexLayout): AlignedGraph =
+    
+    given Monoid[Set[AlignedEdge]]:
+      def zero: Set[AlignedEdge]                                                 = Set.empty
+      override def apply(a: Set[AlignedEdge], b: Set[AlignedEdge]): Set[AlignedEdge] = a union b
+    
+    val intersectingEdges   = DisjointSets[AlignedEdge, Set[AlignedEdge]]
+    var intersectingPairs: Set[(AlignedEdge, AlignedEdge)] = Set.empty
+
+    var removedEdges: Set[AlignedEdge] = Set.empty
+    edges.combinations(2).foreach(
+        l => 
+          l.filter(!intersectingEdges.contains(_)).foreach(e => intersectingEdges.mkSet(e, Set(e)))
+          if intersect(l(0), l(1), pos) then
+            removedEdges.++=(l)
+            intersectingEdges.union(l(0), l(1)):Unit
+            intersectingPairs = intersectingPairs.+((l(0), l(1)))
+    )
+
+    var addedEdges: Set[AlignedEdge] = Set.empty;
+    // TODO: Add edges based on disjoint sets
+    val edgesRemoved                 = edges.toSet.--(removedEdges.flatMap(e => Seq(e, getReverseEdge(e))))
+    val newEdegs                     = edgesRemoved.++(addedEdges)
+    val planarGraph                  = AlignedGraph.fromAlignedEdges(newEdegs.toSeq).mkAlignedGraph
+    planarGraph
+  end planarize
+
 end AGImpl
+
+// FOR TEST ONLY !!!!
+import wueortho.util.Monoid, Monoid.syntax.*
+
+trait DisjointSets[K: AsInt, V: Monoid]:
+  def apply(key: K): Option[V] = Option.when(contains(key))(getOrElseThrow(key))
+  def mkSet(key: K, value: V): V
+  def union(a: K, b: K): V
+  def sameSet(a: K, b: K): Boolean
+  def contains(key: K): Boolean
+  def getOrElseThrow(key: K): V
+  def values: Seq[V]
+
+object DisjointSets:
+  @FunctionalInterface trait AsInt[T]:
+    def asInt(t: T): Int
+
+  object AsInt:
+    given AsInt[Int]       = identity
+    given AsInt[NodeIndex] = _.toInt
+    given AsInt[AlignedEdge] = _.asInt
+
+  extension [K: AsInt](k: K) def asInt = summon[AsInt[K]].asInt(k)
+
+  private class Entry[V: Monoid](var pointer: Int, var rank: Int, var value: V)
+  private object Entry:
+    def nil[V: Monoid] = Entry(-1, -1, Monoid.zero)
+
+  def apply[K: AsInt, V: Monoid] = new DisjointSets[K, V]:
+    val entries = mutable.ArrayBuffer.empty[Entry[V]]
+
+    def findSet(i: Int): Int =
+      val e = entries(i)
+      if e.pointer != i then e.pointer = findSet(e.pointer)
+      e.pointer
+
+    override def getOrElseThrow(key: K) = entries(findSet(key.asInt)).value
+
+    override def contains(key: K) = key.asInt >= 0 && key.asInt < entries.length && entries(key.asInt).pointer != -1
+
+    override def sameSet(a: K, b: K) = contains(a) && contains(b) && (findSet(a.asInt) == findSet(b.asInt))
+
+    override def mkSet(key: K, value: V) =
+      val i   = key.asInt
+      if entries.size <= i then entries ++= Iterator.fill(i - entries.size + 1)(Entry.nil)
+      val res = entries(i)
+      res.pointer = i
+      res.value = value
+      res.rank = 0
+      value
+
+    def link(a: Int, b: Int) =
+      if a == b then entries(a).value
+      else
+        val (aa, bb) = (entries(a), entries(b))
+        if aa.rank > bb.rank then
+          bb.pointer = a
+          aa.value = aa.value <+> bb.value
+          bb.value = Monoid.zero // help the GC
+          aa.value
+        else
+          aa.pointer = b
+          bb.value = bb.value <+> aa.value
+          aa.value = Monoid.zero // help the GC
+          if aa.rank == bb.rank then bb.rank += 1
+          bb.value
+        end if
+    end link
+
+    override def union(a: K, b: K) = link(findSet(a.asInt), findSet(b.asInt))
+
+    override def values = entries.iterator.zipWithIndex.filter((e, i) => e.pointer == i).map(_._1.value).toSeq
+end DisjointSets
