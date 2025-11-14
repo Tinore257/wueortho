@@ -7,8 +7,6 @@ import org.jgrapht.alg.flow.mincost.CapacityScalingMinimumCostFlow
 import org.jgrapht.alg.flow.mincost.MinimumCostFlowProblem.MinimumCostFlowProblemImpl
 import scala.jdk.CollectionConverters.*
 import org.jgrapht.graph.DirectedMultigraph
-import wueortho.util.Monoid
-import wueortho.data.DisjointSets.AsInt
 
 // reverseIndex: Position in der Adjazenzliste der toNode, von dem Link zur aktuellen fromNode
 case class AlignedLink(toNode: NodeIndex, reverseIndex: Int, direction: Direction) derives CanEqual:
@@ -93,6 +91,11 @@ trait AlignedOps:
   /** @return
     */
   def positionsFromEdgeLength(): VertexLayout
+
+  /** @param origPos
+    * @return
+    */
+  def planarize(origPos: VertexLayout): (AlignedGraph, VertexLayout)
 
 end AlignedOps
 
@@ -752,7 +755,9 @@ private case class AGImpl[Graph](
     false
   end intersect
 
-  def planarize(pos: VertexLayout): AlignedGraph =
+  def planarize(origPos: VertexLayout): (AlignedGraph, VertexLayout) =
+
+    var pos = origPos
 
     def splitEdgeIntersection(
         e1: AlignedEdge,
@@ -760,116 +765,69 @@ private case class AGImpl[Graph](
         pos: VertexLayout,
         crossNodeIndex: NodeIndex,
     ): (newEdges: Seq[AlignedEdge], newPos: Vec2D) =
+      /** creates new edges and node based on intersection of two edges
+        *
+        * @param edge
+        * @param crossNodeIndex
+        * @return
+        */
       def split(edge: AlignedEdge, crossNodeIndex: NodeIndex): Seq[AlignedEdge] =
         Seq(
           AlignedEdge(edge.from, crossNodeIndex, edge.direction),
           AlignedEdge(crossNodeIndex, edge.to, edge.direction),
         )
       end split
+
+      def getIntersectionPoint(e1: AlignedEdge, e2: AlignedEdge, pos: VertexLayout): Vec2D =
+        // based on https://en.wikipedia.org/wiki/Line%E2%80%93line_intersection#Given_two_points_on_each_line
+        val vec2DToTuple         = (p: Vec2D) => (p.x1, p.x2)
+        val ((x1, y1), (x2, y2)) = (vec2DToTuple(pos(e1.from)), vec2DToTuple(pos(e1.to)))
+        val ((x3, y3), (x4, y4)) = (vec2DToTuple(pos(e2.from)), vec2DToTuple(pos(e2.to)))
+        val dx12                 = x1 - x2
+        val dx34                 = x3 - x4
+        val dy12                 = y1 - y2
+        val dy34                 = y3 - y4
+        val det12                = x1 * y2 - y1 * x2
+        val det34                = x3 * y4 - y3 * x4
+        val px                   = ((det12 * dx34) - (dx12 * det34)) / ((dx12 * dy34) - (dy12 * dx34))
+        val py                   = ((det12 * dy34) - (dy12 * det34)) / ((dx12 * dy34) - (dy12 * dx34))
+        Vec2D(px, py)
+      end getIntersectionPoint
+
       if !intersect(e1, e2, pos) then sys.error("Edges do not intersect")
-      val newEdges                                                              = split(e1, crossNodeIndex).++(split(e2, crossNodeIndex))
-      // TODO: berechne den Line-Line intersection Punkt
+      val newEdges = split(e1, crossNodeIndex).++(split(e2, crossNodeIndex))
+      val point    = getIntersectionPoint(e1, e2, pos)
+      (newEdges, point)
     end splitEdgeIntersection
 
     var removedEdges: Set[AlignedEdge]          = Set.empty
     val edgesBuffer: IndexedBuffer[AlignedEdge] = edges.to(IndexedBuffer)
-    val nextNodeIndex                           = vertices.length
+    var nextNodeIndex                           = vertices.length
 
-    var i = 0
+    var i           = 0
     while i < edgesBuffer.length do
-      var j = i
-      while j < edgesBuffer.length do
-        val (e1, e2) = (edgesBuffer(i), edgesBuffer(j))
-        if intersect(e1, e2, pos) then
-          // TODO: calculate the new Edges
-          val splittedEdges: Seq[AlignedEdge] = Seq.empty
-          edgesBuffer ++= (splittedEdges)
-          removedEdges ++= (Set(e1, e2))
-          j = edges.length
-        j = j + 1
-      end while
+      val e1 = edgesBuffer(i)
+      if !(removedEdges.contains(e1) || removedEdges.contains(getReverseEdge(e1))) then
+        var j = i
+        while j < edgesBuffer.length do
+          val e2 = edgesBuffer(j)
+          if !(removedEdges.contains(e2) || removedEdges.contains(getReverseEdge(e2))) then
+            if intersect(e1, e2, pos) then
+              val (splittedEdges, newPos) = splitEdgeIntersection(e1, e2, pos, NodeIndex(nextNodeIndex))
+              nextNodeIndex = nextNodeIndex + 1
+              pos = VertexLayout(pos.nodes.appended(newPos))
+              edgesBuffer ++= (splittedEdges)
+              removedEdges ++= (Set(e1, e2))
+              j = edges.length
+          j = j + 1
+        end while
+      end if
       i = i + 1
     end while
-
-    var addedEdges: Set[AlignedEdge] = Set.empty;
     // TODO: Add edges based on disjoint sets
-    val edgesRemoved                 = edges.toSet.--(removedEdges.flatMap(e => Seq(e, getReverseEdge(e))))
-    val newEdegs                     = edgesRemoved.++(addedEdges)
-    val planarGraph                  = AlignedGraph.fromAlignedEdges(newEdegs.toSeq).mkAlignedGraph
-    planarGraph
+    val newEdges    = edgesBuffer.toSet.--(removedEdges.flatMap(e => Seq(e, getReverseEdge(e))))
+    val planarGraph = AlignedGraph.fromAlignedEdges(newEdges.toSeq).mkAlignedGraph
+    (planarGraph, pos)
   end planarize
 
 end AGImpl
-
-// FOR TEST ONLY !!!!
-import wueortho.util.Monoid, Monoid.syntax.*
-
-trait DisjointSets[K: AsInt, V: Monoid]:
-  def apply(key: K): Option[V] = Option.when(contains(key))(getOrElseThrow(key))
-  def mkSet(key: K, value: V): V
-  def union(a: K, b: K): V
-  def sameSet(a: K, b: K): Boolean
-  def contains(key: K): Boolean
-  def getOrElseThrow(key: K): V
-  def values: Seq[V]
-
-object DisjointSets:
-  @FunctionalInterface trait AsInt[T]:
-    def asInt(t: T): Int
-
-  object AsInt:
-    given AsInt[Int]         = identity
-    given AsInt[NodeIndex]   = _.toInt
-    given AsInt[AlignedEdge] = _.asInt
-
-  extension [K: AsInt](k: K) def asInt = summon[AsInt[K]].asInt(k)
-
-  private class Entry[V: Monoid](var pointer: Int, var rank: Int, var value: V)
-  private object Entry:
-    def nil[V: Monoid] = Entry(-1, -1, Monoid.zero)
-
-  def apply[K: AsInt, V: Monoid] = new DisjointSets[K, V]:
-    val entries = mutable.ArrayBuffer.empty[Entry[V]]
-
-    def findSet(i: Int): Int =
-      val e = entries(i)
-      if e.pointer != i then e.pointer = findSet(e.pointer)
-      e.pointer
-
-    override def getOrElseThrow(key: K) = entries(findSet(key.asInt)).value
-
-    override def contains(key: K) = key.asInt >= 0 && key.asInt < entries.length && entries(key.asInt).pointer != -1
-
-    override def sameSet(a: K, b: K) = contains(a) && contains(b) && (findSet(a.asInt) == findSet(b.asInt))
-
-    override def mkSet(key: K, value: V) =
-      val i   = key.asInt
-      if entries.size <= i then entries ++= Iterator.fill(i - entries.size + 1)(Entry.nil)
-      val res = entries(i)
-      res.pointer = i
-      res.value = value
-      res.rank = 0
-      value
-
-    def link(a: Int, b: Int) =
-      if a == b then entries(a).value
-      else
-        val (aa, bb) = (entries(a), entries(b))
-        if aa.rank > bb.rank then
-          bb.pointer = a
-          aa.value = aa.value <+> bb.value
-          bb.value = Monoid.zero // help the GC
-          aa.value
-        else
-          aa.pointer = b
-          bb.value = bb.value <+> aa.value
-          aa.value = Monoid.zero // help the GC
-          if aa.rank == bb.rank then bb.rank += 1
-          bb.value
-        end if
-    end link
-
-    override def union(a: K, b: K) = link(findSet(a.asInt), findSet(b.asInt))
-
-    override def values = entries.iterator.zipWithIndex.filter((e, i) => e.pointer == i).map(_._1.value).toSeq
-end DisjointSets
