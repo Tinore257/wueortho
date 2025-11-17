@@ -138,6 +138,32 @@ object AlgorithmicSteps:
     end getAlignedSubGraph
   end given
 
+
+  given StepImpl[step.PlanarizeAlignedGraph]:
+    override transparent inline def stagesUsed =
+      (
+        "layout"       -> Stage.Layout,
+        "AlignedGraph" -> Stage.GraphWithAlignments,
+      )
+
+    override transparent inline def stagesModified = (Stage.GraphWithAlignments, Stage.Layout)
+
+    override def tags = GetTags(stagesUsed)
+
+    override def helpText =
+      s"""Planarizes a AlignedGraph using VertexLayout""".stripMargin
+
+    override def runToStage(s: WithTags[step.PlanarizeAlignedGraph], cache: StageCache) = for
+      (inLayout, alignedSubGraph) <- UseStages(s, cache, stagesUsed)
+      _                                  <- UpdateStages(s, cache, stagesModified)(planarizeAlignedGraph(alignedSubGraph, inLayout))
+    yield noRt
+
+    private def planarizeAlignedGraph(graph: AlignedGraph, init: VertexLayout)=
+      val res = RunningTime.of("Layouting of aligned edges")(() => graph.planarize(init))
+      res.get()
+    end planarizeAlignedGraph
+  end given
+
   given StepImpl[step.LayoutAlignedEdges]:
     override transparent inline def stagesUsed =
       (
