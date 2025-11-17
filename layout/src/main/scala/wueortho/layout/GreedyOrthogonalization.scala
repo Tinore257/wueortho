@@ -15,6 +15,7 @@ import wueortho.data.AlignedEdge
 import wueortho.data.AlignedGraph
 import wueortho.data.BasicGraph
 import wueortho.util.GraphConversions.sg2dg
+import wueortho.data.IntersectionTools
 
 object GreedyOrthogonalization:
 
@@ -100,56 +101,6 @@ object GreedyOrthogonalization:
       val semiAxisAngle = directionToAngle(dir)
       Math.abs(angle - semiAxisAngle) min Math.abs(angle - Math.PI * 2 - semiAxisAngle)
 
-    def intersect(e1: SimpleEdge, e2: SimpleEdge): Boolean =
-
-      // test for shared endpoint
-      if pos(e1.from.toInt) != pos(e1.to.toInt) && pos(e2.from.toInt) != pos(e2.to.toInt) then
-        if Seq(e1.from, e1.to, e2.from, e2.to).map(id => pos(id.toInt)).combinations(2)
-            .exists(_.reduce(_ - _).len != 0)
-        then return false
-
-      def orientationTest(e: SimpleEdge, node: NodeIndex): Double =
-        val p = pos(e.from.toInt)
-        val q = pos(e.to.toInt)
-        val r = pos(node.toInt)
-        val v = (q.x2 - p.x2) * (r.x1 - q.x1) -
-          (q.x1 - p.x1) * (r.x2 - q.x2)
-        if Math.abs(v) <= 0.00001 then v else v.sign
-
-      def onSegment(p1: NodeIndex, p2: NodeIndex, node: NodeIndex) =
-        val p = pos(p1.toInt)
-        val q = pos(p2.toInt)
-        val r = pos(node.toInt)
-        q.x1 <= (p.x1 max r.x1) && q.x1 >= (p.x1 min r.x1) &&
-        q.x2 <= (p.x2 max r.x2) && q.x2 >= (p.x2 min r.x2)
-
-      val o1 = orientationTest(e1, e2.from)
-      val o2 = orientationTest(e1, e2.to)
-      val o3 = orientationTest(e2, e1.from)
-      val o4 = orientationTest(e2, e1.to)
-
-      // general case
-      if (o1 != o2 && o3 != o4) then
-        println(s"Edege (${e1.from},${e1.to}) intersects (${e2.from}, ${e2.to}) with positions (${pos(e1.from.toInt)
-            .toString}, ${pos(e1.to.toInt).toString}) and (${pos(e2.from.toInt).toString}, ${pos(e2.to.toInt).toString})")
-        return true
-
-      return false
-      // edge-cases with colinearity
-      if (o1 == 0 && onSegment(e1.from, e2.from, e1.to)) then
-        println(s"Edege (${e1.from},${e1.to}) intersects (${e2.from}, ${e2.to}) ")
-        return true
-      if (o2 == 0 && onSegment(e1.from, e2.to, e1.to)) then
-        println(s"Edege (${e1.from},${e1.to}) intersects (${e2.from}, ${e2.to}) ")
-        return true
-      if (o3 == 0 && onSegment(e2.from, e1.from, e2.to)) then
-        println(s"Edege (${e1.from},${e1.to}) intersects (${e2.from}, ${e2.to}) ")
-        return true
-      if (o4 == 0 && onSegment(e2.from, e1.to, e2.to)) then
-        println(s"Edege (${e1.from},${e1.to}) intersects (${e2.from}, ${e2.to}) ")
-        return true
-      false
-    end intersect
 
     val verticesOrderedByDegree = undirectedGraph.vertices.zipWithIndex.map((v, i) => (i, v.neighbors.length))
       .sortBy((_, l) => l).reverse
@@ -190,9 +141,9 @@ object GreedyOrthogonalization:
           then
             // assigns an edge only if it does not cross any assigned edge
             if graph.edges.map(e =>
-                !(isAligned(e, candidate.dir) && intersect(
+                !(isAligned(e, candidate.dir) && IntersectionTools().intersect(
                   e,
-                  SimpleEdge(NodeIndex(candidate.edge._1), NodeIndex(candidate.edge._2)),
+                  SimpleEdge(NodeIndex(candidate.edge._1), NodeIndex(candidate.edge._2)), init
                 )),
               ).reduce(_ & _)
             then

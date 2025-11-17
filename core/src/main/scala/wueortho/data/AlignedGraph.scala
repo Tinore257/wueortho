@@ -751,10 +751,6 @@ private case class AGImpl[Graph](
 
   end positionsFromEdgeLength
 
-  def intersect(e1: AlignedEdge, e2: AlignedEdge, pos: VertexLayout): Boolean =
-    false
-  end intersect
-
   def planarize(origPos: VertexLayout): (AlignedGraph, VertexLayout) =
 
     var pos = origPos
@@ -794,7 +790,7 @@ private case class AGImpl[Graph](
         Vec2D(px, py)
       end getIntersectionPoint
 
-      if !intersect(e1, e2, pos) then sys.error("Edges do not intersect")
+      if !IntersectionTools().intersect(e1, e2, pos) then sys.error("Edges do not intersect")
       val newEdges = split(e1, crossNodeIndex).++(split(e2, crossNodeIndex))
       val point    = getIntersectionPoint(e1, e2, pos)
       (newEdges, point)
@@ -812,7 +808,7 @@ private case class AGImpl[Graph](
         while j < edgesBuffer.length do
           val e2 = edgesBuffer(j)
           if !(removedEdges.contains(e2) || removedEdges.contains(getReverseEdge(e2))) then
-            if intersect(e1, e2, pos) then
+            if IntersectionTools().intersect(e1, e2, pos) then
               val (splittedEdges, newPos) = splitEdgeIntersection(e1, e2, pos, NodeIndex(nextNodeIndex))
               nextNodeIndex = nextNodeIndex + 1
               pos = VertexLayout(pos.nodes.appended(newPos))
