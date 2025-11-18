@@ -9,9 +9,8 @@ case class IntersectionTools():
   def intersect(e1: SimpleEdge, e2: SimpleEdge, pos: VertexLayout): Boolean =
 
     // test for shared endpoint
-    if pos(e1.from) != pos(e1.to) && pos(e2.from) != pos(e2.to) then
-      if Seq(e1.from, e1.to, e2.from, e2.to).map(id => pos(id)).combinations(2).exists(_.reduce(_ - _).len != 0)
-      then return false
+    if Seq(e1.from, e1.to, e2.from, e2.to).map(id => pos(id)).combinations(2).exists(_.reduce(_ - _).len == 0)
+    then return false
 
     def orientationTest(e: SimpleEdge, node: NodeIndex): Double =
       val p = pos(e.from)

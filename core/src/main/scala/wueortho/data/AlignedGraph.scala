@@ -804,7 +804,7 @@ private case class AGImpl[Graph](
     while i < edgesBuffer.length do
       val e1 = edgesBuffer(i)
       if !(removedEdges.contains(e1) || removedEdges.contains(getReverseEdge(e1))) then
-        var j = i
+        var j = (i + 1)
         while j < edgesBuffer.length do
           val e2 = edgesBuffer(j)
           if !(removedEdges.contains(e2) || removedEdges.contains(getReverseEdge(e2))) then
@@ -814,7 +814,7 @@ private case class AGImpl[Graph](
               pos = VertexLayout(pos.nodes.appended(newPos))
               edgesBuffer ++= (splittedEdges)
               removedEdges ++= (Set(e1, e2))
-              j = edges.length
+              j = edgesBuffer.length
           j = j + 1
         end while
       end if
