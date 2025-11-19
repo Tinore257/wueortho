@@ -25,17 +25,9 @@ object AlignedGraphDissection:
     end addBoundingBox
     var faceEdgeCandidate                                                                  = graph.getOneEdgePerFace()
     var allEdges                                                                           = graph.edges.toSet
-    var uncheckedNodes                                                                     = Range(0, graph.vertices.length).map(NodeIndex(_)).toSet
-    val allComponents: mutable.Set[Set[NodeIndex]]                                         = mutable.Set.empty
-    while !uncheckedNodes.isEmpty do
-      val startNode = uncheckedNodes.toSeq(0)
-      val adj       = (v: NodeIndex) => graph.vertices(v.toInt).neighbors.map(_.toNode)
-      val comp      = bfs.traverse(adj, startNode).toSet
-      uncheckedNodes = uncheckedNodes.--(comp)
-      allComponents.+=(comp)
-    end while
-    val numberOfComponents                                                                 = allComponents.size
-    val bb                                                                                 = addBoundingBox(allEdges.toSeq, numberOfComponents)
+    val numberOfComponents                                                                 = getConnectedComponents(graph)
+    // TODO: add support for multiple connected components!
+    val bb                                                                                 = addBoundingBox(allEdges.toSeq, 1)
     allEdges.++=(bb)
     var currentGraph                                                                       = AlignedGraph.fromAlignedEdges(allEdges.toSeq).mkAlignedGraph
     var i                                                                                  = 0
@@ -78,6 +70,19 @@ object AlignedGraphDissection:
     end while
     AlignedGraph.fromAlignedEdges(allEdges.toSeq).mkAlignedGraph
   end rectangularDissection
+
+  def getConnectedComponents(graph: AlignedGraph): Set[Set[NodeIndex]] =
+    var uncheckedNodes                             = Range(0, graph.vertices.length).map(NodeIndex(_)).toSet
+    val allComponents: mutable.Set[Set[NodeIndex]] = mutable.Set.empty
+    while !uncheckedNodes.isEmpty do
+      val startNode = uncheckedNodes.toSeq(0)
+      val adj       = (v: NodeIndex) => graph.vertices(v.toInt).neighbors.map(_.toNode)
+      val comp      = bfs.traverse(adj, startNode).toSet
+      uncheckedNodes = uncheckedNodes.--(comp)
+      allComponents.+=(comp)
+    end while
+    allComponents.toSet
+  end getConnectedComponents
 
   def getCornerDirections(e1: AlignedEdge, e2: AlignedEdge): Option[(Direction, Direction)] =
     if isCorner(e1, e2) then Some(e1.direction, e2.direction) else Option.empty
