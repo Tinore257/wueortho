@@ -258,18 +258,20 @@ private case class AGImpl[Graph](
     new AbstractIterator[AlignedLink]:
       private var current                          = start.toNode
       private var currentDirection                 = start.direction
-      private var startLink: Option[AlignedLink]   = None;
+      private var startEdge: Option[AlignedEdge]   = None;
       private var isFirstLink                      = true;
+      private var currentFrom: Option[NodeIndex]   = None;
       private var currentLink: Option[AlignedLink] = None;
       private var counter                          = 0;
 
-      def isStartLink(link: AlignedLink): Boolean =
-        startLink.isDefined && link.equals(startLink.get)
-      def hasNext                                 = (cyclic || (isFirstLink || !isFirstLink && currentLink.isDefined && startLink
-        .isDefined && !(isStartLink(currentLink.get)))) && !nodes(current.toInt).neighbors.isEmpty
-      //  .isDefined && !(currentLink.get.equals(startLink.get)))) && !nodes(current.toInt).neighbors.isEmpty
-      def next(): AlignedLink                     =
-        startLink match
+      def isStartLink(link: AlignedLink, fromNode: NodeIndex): Boolean =
+        (startEdge.isDefined && currentFrom.isDefined) && (link.toNode == startEdge.get.to && fromNode == startEdge.get
+          .from)
+      def hasNext                                                      =
+        (cyclic || (isFirstLink || !isFirstLink && currentLink.isDefined && (startEdge.isDefined && currentFrom
+          .isDefined) && !(isStartLink(currentLink.get, currentFrom.get)))) && !nodes(current.toInt).neighbors.isEmpty
+      def next(): AlignedLink                                          =
+        startEdge match
           case Some(_) => isFirstLink = false
           case None    => ()
 
@@ -284,13 +286,14 @@ private case class AGImpl[Graph](
 
         val nextDir  = getFirstExistingDir(current, currentDirection.reverse, getNextDir)
         val nextLink = nodes(current.toInt).neighbors.filter(l => l.direction == nextDir).last
-        startLink match
+        startEdge match
           case Some(value) => ()
-          case None        => startLink = Some(nextLink)
+          case None        => startEdge = Some(AlignedEdge(current, nextLink.toNode, nextLink.direction))
 
         counter = counter + 1;
-        if counter > 2 * (vertices.length * 3 - 6) then sys.error("The provided graph can not be planar!")
+        if !cyclic && counter > 2 * (vertices.length * 3 - 6) then sys.error("The provided graph can not be planar!")
         currentLink = Some(nextLink)
+        currentFrom = Some(current)
         current = nextLink.toNode
         currentDirection = nextLink.direction
         nextLink
@@ -421,7 +424,11 @@ private case class AGImpl[Graph](
   def getAllFaces(): mutable.IndexedBuffer[Seq[AlignedEdge]] =
     def ensureSmallestEdgeFirst(face: Seq[AlignedEdge]): Seq[AlignedEdge] =
       if face.isEmpty then return face
-      val smallestElementIndex = face.zipWithIndex.minBy((e, _) => e.from.toInt)._2
+      val smallesFromNode      = face.minBy(_.from.toInt).from
+      val allSmallestFromEdges = face.filter(_.from == smallesFromNode)
+      val smallestToNode       = allSmallestFromEdges.minBy(_.to.toInt).to
+      val smallestElementIndex = face.zipWithIndex.find((e, _) => e.from == smallesFromNode && e.to == smallestToNode)
+        .get._2
       val sortedFace           = face.slice(smallestElementIndex, face.length).++(face.slice(0, smallestElementIndex))
       sortedFace
     end ensureSmallestEdgeFirst
@@ -823,6 +830,7 @@ private case class AGImpl[Graph](
     // TODO: Add edges based on disjoint sets
     val newEdges    = edgesBuffer.toSet.--(removedEdges.flatMap(e => Seq(e, getReverseEdge(e))))
     val planarGraph = AlignedGraph.fromAlignedEdges(newEdges.toSeq).mkAlignedGraph
+    print("Positions after planarisation: {}", pos.toString())
     (planarGraph, pos)
   end planarize
 
