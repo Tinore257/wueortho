@@ -21,6 +21,7 @@ import io.circe.derivation.ConfiguredEnumCodec
 
 import scala.util.Random
 import wueortho.layout.GreedyOrthogonalization
+import wueortho.layout.FlowNetworkEdgeLength
 
 object AlgorithmicSteps:
 
@@ -185,7 +186,7 @@ object AlgorithmicSteps:
     yield noRt
 
     private def layoutAlignedGraph(graph: AlignedGraph, init: VertexLayout) =
-      val res = RunningTime.of("Layouting of aligned edges")(() => graph.positionsFromEdgeLength())
+      val res = RunningTime.of("Layouting of aligned edges")(() =>  FlowNetworkEdgeLength.positionsFromEdgeLength(graph))
       res.get()
     end layoutAlignedGraph
   end given
