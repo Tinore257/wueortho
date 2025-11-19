@@ -452,25 +452,36 @@ private case class AGImpl[Graph](
   end getOneEdgePerFace
 
   def rectangularDissection(): AlignedGraph =
-    def addBoundingBox(edges: Seq[AlignedEdge]): Seq[AlignedEdge] =
-      val i        = edges.flatMap(e => Seq(e.from, e.to)).map(_.toInt).max + 1
-      val newEdges = Seq(
-        AlignedEdge(NodeIndex(i), NodeIndex(i + 1), Direction.West),
-        AlignedEdge(NodeIndex(i + 1), NodeIndex(i + 2), Direction.West),
-        AlignedEdge(NodeIndex(i + 2), NodeIndex(i + 3), Direction.North),
-        AlignedEdge(NodeIndex(i + 3), NodeIndex(i + 4), Direction.East),
-        AlignedEdge(NodeIndex(i + 4), NodeIndex(i), Direction.South),
+    def addBoundingBox(edges: Seq[AlignedEdge], numberOfComponents: Int): Seq[AlignedEdge] =
+      val i         = edges.flatMap(e => Seq(e.from, e.to)).map(_.toInt).max + 1
+      val dockEdges = Range(0, numberOfComponents)
+        .map(index => AlignedEdge(NodeIndex(i + index), NodeIndex(i + index + 1), Direction.West))
+      val newEdges  = dockEdges.++(
+        Seq(
+          AlignedEdge(NodeIndex(i + 2), NodeIndex(i + 3), Direction.North),
+          AlignedEdge(NodeIndex(i + 3), NodeIndex(i + 4), Direction.East),
+          AlignedEdge(NodeIndex(i + 4), NodeIndex(i), Direction.South),
+        ),
       )
       newEdges
     end addBoundingBox
-    var faceEdgeCandidate                                         = getOneEdgePerFace()
-    var allEdges                                                  = this.edges.toSet
-    val bb                                                        = addBoundingBox(allEdges.toSeq)
+    var faceEdgeCandidate                                                                  = getOneEdgePerFace()
+    var allEdges                                                                           = this.edges.toSet
+    var uncheckedNodes                                                                     = Range(0, nodes.length).map(NodeIndex(_)).toSet
+    val allComponents: mutable.Set[Set[NodeIndex]]                                         = mutable.Set.empty
+    while !uncheckedNodes.isEmpty do
+      val startNode = uncheckedNodes.toSeq(0)
+      val adj       = (v: NodeIndex) => vertices(v.toInt).neighbors.map(_.toNode)
+      val comp      = bfsTraverse(adj, startNode).toSet
+      uncheckedNodes = uncheckedNodes.--(comp)
+      allComponents.+=(comp)
+    end while
+    val numberOfComponents                                                                 = allComponents.size
+    val bb                                                                                 = addBoundingBox(allEdges.toSeq, numberOfComponents)
     allEdges.++=(bb)
-    var currentGraph                                              = AlignedGraph.fromAlignedEdges(allEdges.toSeq).mkAlignedGraph
-    var i                                                         = 0
+    var currentGraph                                                                       = AlignedGraph.fromAlignedEdges(allEdges.toSeq).mkAlignedGraph
+    var i                                                                                  = 0
     while i < faceEdgeCandidate.size do
-
       var e = faceEdgeCandidate(i)
       if currentGraph.isOuterFace(e) then
         val edgesAfterCompaction = currentGraph.rectangularDissectFace(e.to, e)
@@ -514,9 +525,9 @@ private case class AGImpl[Graph](
 
   def getMapEdgeToAdjacentFace(facesReps: IndexedBuffer[AlignedEdge]): Map[AlignedEdge, IndexedBuffer[Int]] =
     /*def isSameOrReverseEdge(e1: AlignedEdge, e2: AlignedEdge): Boolean =
-      def isSameEdge(e1: AlignedEdge, e2: AlignedEdge): Boolean =
-        e1.from == e2.from && e1.to == e2.to
-      isSameEdge(e1, e2) || isSameEdge(e1, getReverseEdge(e2))*/
+        def isSameEdge(e1: AlignedEdge, e2: AlignedEdge): Boolean =
+          e1.from == e2.from && e1.to == e2.to
+        isSameEdge(e1, e2) || isSameEdge(e1, getReverseEdge(e2))*/
     def edgeSortedFromTo(e: AlignedEdge): AlignedEdge =
       if (e.from.toInt < e.to.toInt) then e else getReverseEdge(e)
     val allEdges                                      = facesReps.zipWithIndex.flatMap((rep, i) =>
@@ -833,5 +844,23 @@ private case class AGImpl[Graph](
     print("Positions after planarisation: {}", pos.toString())
     (planarGraph, pos)
   end planarize
+
+  // ###################### Start BFS ############################################
+  private def bfsTraverse(neighbors: NodeIndex => Seq[NodeIndex], start: NodeIndex) =
+    val visited = mutable.BitSet.empty
+    val result  = mutable.ArrayBuffer.empty[NodeIndex]
+    val queue   = mutable.ArrayDeque(start)
+
+    while queue.nonEmpty do
+      val next = queue.removeHead()
+      if !visited(next.toInt) then
+        result += next
+        visited += next.toInt
+        for node <- neighbors(next) if !visited(node.toInt) do queue += node
+    end while
+
+    result.toSeq
+  end bfsTraverse
+  // ############################ END BFS ###########################################
 
 end AGImpl
