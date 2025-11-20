@@ -6,31 +6,38 @@ import wueortho.data.*
 import scala.collection.mutable
 import wueortho.data.AlignedEdge
 import wueortho.util.GraphSearch.bfs
+import scala.collection.mutable.IndexedBuffer
 
 object AlignedGraphDissection:
 
-  def rectangularDissection(graph: AlignedGraph): AlignedGraph =
-    def addBoundingBox(edges: Seq[AlignedEdge], numberOfComponents: Int): Seq[AlignedEdge] =
+  def rectangularDissection(
+      graph: AlignedGraph,
+  ): AlignedGraph =
+    // (AlignedGraph, IndexedBuffer[(component: Set[NodeIndex], dockEdge: AlignedEdge, dockingNode: NodeIndex)]) =
+    def addBoundingBox(edges: Seq[AlignedEdge], numComponents: Int): Seq[AlignedEdge]                                =
       val i         = edges.flatMap(e => Seq(e.from, e.to)).map(_.toInt).max + 1
-      val dockEdges = Range(0, numberOfComponents)
+      val dockEdges = Range(0, numComponents + 1)
         .map(index => AlignedEdge(NodeIndex(i + index), NodeIndex(i + index + 1), Direction.West))
       val newEdges  = dockEdges.++(
         Seq(
-          AlignedEdge(NodeIndex(i + 2), NodeIndex(i + 3), Direction.North),
-          AlignedEdge(NodeIndex(i + 3), NodeIndex(i + 4), Direction.East),
-          AlignedEdge(NodeIndex(i + 4), NodeIndex(i), Direction.South),
+          AlignedEdge(NodeIndex(i + numComponents + 1), NodeIndex(i + numComponents + 2), Direction.North),
+          AlignedEdge(NodeIndex(i + numComponents + 2), NodeIndex(i + numComponents + 3), Direction.East),
+          AlignedEdge(NodeIndex(i + numComponents + 3), NodeIndex(i), Direction.South),
         ),
       )
       newEdges
     end addBoundingBox
-    var faceEdgeCandidate                                                                  = graph.getOneEdgePerFace()
-    var allEdges                                                                           = graph.edges.toSet
-    val numberOfComponents                                                                 = getConnectedComponents(graph)
+    val dockEdgesWithNode: IndexedBuffer[(component: Set[NodeIndex], dockEdge: AlignedEdge, dockingNode: NodeIndex)] =
+      IndexedBuffer.empty
+    var faceEdgeCandidate                                                                                            = graph.getOneEdgePerFace()
+    var allEdges                                                                                                     = graph.edges.toSet
+    val connectedComponents                                                                                          = getConnectedComponents(graph)
     // TODO: add support for multiple connected components!
-    val bb                                                                                 = addBoundingBox(allEdges.toSeq, 1)
+    val bb                                                                                                           = addBoundingBox(allEdges.toSeq, connectedComponents.size)
     allEdges.++=(bb)
-    var currentGraph                                                                       = AlignedGraph.fromAlignedEdges(allEdges.toSeq).mkAlignedGraph
-    var i                                                                                  = 0
+    var currentGraph                                                                                                 = AlignedGraph.fromAlignedEdges(allEdges.toSeq).mkAlignedGraph
+    var i                                                                                                            = 0
+    var connectedComponentsCounter                                                                                   = 0
     while i < faceEdgeCandidate.size do
       var e = faceEdgeCandidate(i)
       if currentGraph.isOuterFace(e) then
@@ -40,22 +47,18 @@ object AlignedGraphDissection:
         val allReplaced          = edgesAfterCompaction.replacedEdges.flatMap(e => graph.nodeAndReverseNode(e))
         allEdges = allEdges.++(edgesAfterCompaction.newEdges).toSet.--(allReplaced)
         val compactedGraph       = AlignedGraph.fromAlignedEdges(allEdges.toSeq).mkAlignedGraph
-        // after compaction e might no longer lay on the outer face
-        // TODO: For debugging
-        // val x                    = edgesAfterCompaction.newEdges.flatMap(e => Seq(e, getReverseEdge(e)))
-        //  .map(e => (e, compactedGraph.isOuterFace(e)))
         e =
           if edgesAfterCompaction.newEdges.isEmpty then e
           else edgesAfterCompaction.newEdges.find(e => compactedGraph.isOuterFace(e)).get
         val outerFaceIter        = compactedGraph.traverseEdgesAlignedFace(e, false).toSeq
         val nodeToOuterFace      = getBottomRightCorner(compactedGraph, outerFaceIter)
-        val edgesToBB            = Seq(
-          AlignedEdge(nodeToOuterFace, bb(0).to, Direction.South),
-          // AlignedEdge(bb(0).to, nodeToOuterFace, Direction.North), // nur eine Kante hinzufügen, da auch nur eine neue Facette entsteht
-        )
-        allEdges.++=(edgesToBB)
+        val edgeToBB             = AlignedEdge(nodeToOuterFace, bb(connectedComponentsCounter).to, Direction.South)
+        dockEdgesWithNode
+          .+=((getConnectedComponent(graph, nodeToOuterFace), bb(connectedComponentsCounter), nodeToOuterFace))
+        connectedComponentsCounter = connectedComponentsCounter + 1;
+        allEdges.+=(edgeToBB)
         val graphWithConnectedBB = AlignedGraph.fromAlignedEdges(allEdges.toSeq).mkAlignedGraph
-        faceEdgeCandidate = faceEdgeCandidate.++(edgesToBB)
+        faceEdgeCandidate = faceEdgeCandidate.:+(edgeToBB)
         currentGraph = graphWithConnectedBB
       else
         val edgesAfterCompaction = rectangularDissectFace(currentGraph, e.to, e)
@@ -68,16 +71,21 @@ object AlignedGraphDissection:
       end if
       i = i + 1
     end while
+    // (AlignedGraph.fromAlignedEdges(allEdges.toSeq).mkAlignedGraph, dockEdgesWithNode)
     AlignedGraph.fromAlignedEdges(allEdges.toSeq).mkAlignedGraph
   end rectangularDissection
+
+  def getConnectedComponent(graph: AlignedGraph, startNode: NodeIndex): Set[NodeIndex] =
+    val adj = (v: NodeIndex) => graph.vertices(v.toInt).neighbors.map(_.toNode)
+    bfs.traverse(adj, startNode).toSet
+  end getConnectedComponent
 
   def getConnectedComponents(graph: AlignedGraph): Set[Set[NodeIndex]] =
     var uncheckedNodes                             = Range(0, graph.vertices.length).map(NodeIndex(_)).toSet
     val allComponents: mutable.Set[Set[NodeIndex]] = mutable.Set.empty
     while !uncheckedNodes.isEmpty do
       val startNode = uncheckedNodes.toSeq(0)
-      val adj       = (v: NodeIndex) => graph.vertices(v.toInt).neighbors.map(_.toNode)
-      val comp      = bfs.traverse(adj, startNode).toSet
+      val comp      = getConnectedComponent(graph, startNode)
       uncheckedNodes = uncheckedNodes.--(comp)
       allComponents.+=(comp)
     end while
@@ -128,7 +136,6 @@ object AlignedGraphDissection:
       if checkForSequenceAtEnd(recentEdges.toIndexedSeq) then
         // replace sequence
         val sequence                                   = recentEdges.takeRight(4)
-        // TODO: Instead of inserting to sequence(2) ====> SplitEdge funktion, um neuen Knoten einzufügen!!!!!
         val (newIndex, newEdgesFromSplit, allNewEdges) = graph.splitEdge(sequence(0), graph.vertices)
         val newEdge                                    = AlignedEdge(sequence(3).from, newIndex, sequence(1).direction.reverse)
         val recursiveGraph                             = AlignedGraph.fromAlignedEdges(allNewEdges.appended(newEdge)).mkAlignedGraph

@@ -20,7 +20,7 @@ trait AlignedWithLengthOps:
 
   def getDissectedEdges(edge: AlignedEdge): Seq[AlignedWithLengthEdge]
 
-  def getPositions(): Seq[Vec2D]
+  def getPositions(): IndexedSeq[Vec2D]
 
 end AlignedWithLengthOps
 
@@ -138,8 +138,8 @@ private case class AwLGImpl[Graph](
       case Direction.West  => Vec2D(position.x1 + linkToNeigbor.length, position.x2)
   end getPositionFromNeigbor
 
-  def getPositions(): Seq[Vec2D] =
-    if vertices.isEmpty then return Seq.empty
+  def getPositions(): IndexedSeq[Vec2D] =
+    if vertices.isEmpty then return IndexedSeq.empty
     val unvisitedNodes: mutable.Set[NodeIndex] = vertices.indices.map(NodeIndex(_)).to(mutable.Set)
     val fronteer: mutable.Set[NodeIndex]       = mutable.Set()
     val position: mutable.IndexedBuffer[Vec2D] = vertices.indices.map(_ => Vec2D(0, 0)).to(mutable.IndexedBuffer)
@@ -157,7 +157,7 @@ private case class AwLGImpl[Graph](
         position(currentNode.toInt) = newPos.last
       fronteer.++=(vertices(currentNode.toInt).neighbors.map(_.toNode).filter(unvisitedNodes.contains(_)))
     end while
-    position.toSeq
+    position.toIndexedSeq
   end getPositions
 
 end AwLGImpl

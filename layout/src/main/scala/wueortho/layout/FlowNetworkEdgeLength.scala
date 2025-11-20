@@ -9,6 +9,7 @@ import scala.collection.mutable
 import scala.collection.mutable.IndexedBuffer
 import scala.jdk.CollectionConverters.*
 import wueortho.layout.AlignedGraphDissection
+import wueortho.layout.AlignedGraphDissection.getConnectedComponents
 
 object FlowNetworkEdgeLength:
 
@@ -164,6 +165,27 @@ object FlowNetworkEdgeLength:
 
   end solveFlowNetwork
 
+  def offsetConnectedComponent(component: Seq[NodeIndex], pos: IndexedSeq[Vec2D], offset: Vec2D): IndexedSeq[Vec2D] =
+    val posVec = mutable.IndexedBuffer[Vec2D](pos*)
+    for node <- component do
+      posVec(node.toInt) = pos(node.toInt) + offset
+      val x = 3
+    end for
+    posVec.toIndexedSeq
+  end offsetConnectedComponent
+
+  def getConnectedComponentBoundingBox(
+      component: Seq[NodeIndex],
+      pos: IndexedSeq[Vec2D],
+  ): (topLeft: Vec2D, bottomRight: Vec2D) =
+    val posVec = component.map(node => pos(node.toInt))
+    val top    = posVec.maxBy(_.x2).x2
+    val right  = posVec.maxBy(_.x1).x1
+    val left   = posVec.minBy(_.x1).x1
+    val bottom = posVec.minBy(_.x2).x2
+    (Vec2D(left, top), Vec2D(right, bottom))
+  end getConnectedComponentBoundingBox
+
   def positionsFromEdgeLength(graph: AlignedGraph): VertexLayout =
 
     val accumulatedEdgeLengths = determineEdgeLength(graph);
@@ -171,7 +193,25 @@ object FlowNetworkEdgeLength:
     val graphWithEdgeLength = AlignedWithLengthGraph.fromAlignedWithLengthEdges(accumulatedEdgeLengths)
       .mkAlignedWithLengthGraph;
 
-    val nodePositions = graphWithEdgeLength.getPositions();
+    var nodePositions = graphWithEdgeLength.getPositions();
+
+    val allComponents = getConnectedComponents(graph).toIndexedSeq
+
+    val boundingBoxes = allComponents.map(comp => getConnectedComponentBoundingBox(comp.toSeq, nodePositions))
+
+    val componentWidth = boundingBoxes.map(bb => math.abs(bb.bottomRight.x1 - bb.topLeft.x1))
+
+    var prevOffset = 0.0;
+
+    for i <- Range(0, allComponents.size) do
+      prevOffset = prevOffset + componentWidth(i) + 1
+      nodePositions = offsetConnectedComponent(
+        allComponents(i).toSeq,
+        nodePositions,
+        Vec2D(prevOffset, 0),
+      )
+
+    end for
 
     VertexLayout(nodePositions.toIndexedSeq)
   end positionsFromEdgeLength
@@ -204,6 +244,18 @@ object FlowNetworkEdgeLength:
 
     val accumulatedEdgeLengths = originalEdgesWithLength.map(_.map(_.length).reduce(_ + _)).zip(graph.edges)
       .map((length, edge) => AlignedWithLengthEdge(edge.from, edge.to, edge.direction, length))
+
+    /*val docksSorted = edgesBetweenConnectedComponents.sortBy(_.dockEdge.from)
+
+    val totalWitdh = docksSorted
+      .flatMap(dock => dissectedGraphWithLength.getDissectedEdges(dock.dockEdge).map(_.length)).sum
+
+    var prevOffset = ((totalWitdh + 1) / 2)
+
+    for i <- Range(0, docksSorted.length) do
+      val currentDock = docksSorted(i)
+
+    end*/
 
     accumulatedEdgeLengths
   end determineEdgeLength
