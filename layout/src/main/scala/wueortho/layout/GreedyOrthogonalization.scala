@@ -135,6 +135,14 @@ object GreedyOrthogonalization:
     (graph, currentAlignedGraph, pos)
   end alignUnalignedEdge
 
+  /**
+    * clips the (sorted) list of edges between low (start) and high (end)
+    *
+    * @param edges
+    * @param low
+    * @param high
+    * @return
+    */
   def getEdgeInterval(edges: IndexedSeq[SimpleEdge], low: Option[SimpleEdge], high:Option[SimpleEdge]): IndexedSeq[SimpleEdge] =
     if low.isEmpty && high.isEmpty then return edges
     val cyclic = edges.++(edges)
