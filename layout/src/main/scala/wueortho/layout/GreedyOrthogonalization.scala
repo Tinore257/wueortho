@@ -71,21 +71,30 @@ object GreedyOrthogonalization:
   end getAngle
 
   /**
-    * sorts the neigbors based on their angle relativ to node 
+    * sorts the neighbors based on their angle relativ to node 
     *
     * @param node the reference point
-    * @param neigbors points to sort
+    * @param neighbors points to sort
     * @param pos position vector of all points
     * @param ccw 
-    * @return
+    * @return Tuple of neighbors NodeIndex and corresponding angle
     */
-  def getRadialOrdering(node: NodeIndex, neigbors: Seq[NodeIndex], pos: VertexLayout, ccw: Boolean = true): IndexedSeq[(NodeIndex, Double)] =
-    val ordering = neigbors.toIndexedSeq.map(n => (n, getAngle(node, n, pos))).sortBy(_._2)
+  def getRadialOrdering(node: NodeIndex, neighbors: Seq[NodeIndex], pos: VertexLayout, ccw: Boolean = true): IndexedSeq[(NodeIndex, Double)] =
+    val ordering = neighbors.toIndexedSeq.map(n => (n, getAngle(node, n, pos))).sortBy(_._2)
     if ccw then ordering else ordering.reverse 
   end getRadialOrdering 
 
-   def getRadialOrderingNeigbors(node: NodeIndex, neigborsEdges: Seq[SimpleEdge], pos: VertexLayout, ccw: Boolean = true): IndexedSeq[(SimpleEdge, Double)] =
-    val ordering = neigborsEdges.toIndexedSeq.map(n => (n, getAngle(node, n.to, pos))).sortBy(_._2)
+  /**
+    * sorts the edges to the neighbors based on their angle relativ to node 
+    *
+    * @param node the refrence point
+    * @param neighborsEdges edges to sort
+    * @param pos position vector of all points
+    * @param ccw
+    * @return Tuple of edges and corresponding angle
+    */
+   def getRadialOrderingNeigbors(node: NodeIndex, neighborsEdges: Seq[SimpleEdge], pos: VertexLayout, ccw: Boolean = true): IndexedSeq[(SimpleEdge, Double)] =
+    val ordering = neighborsEdges.toIndexedSeq.map(n => (n, getAngle(node, n.to, pos))).sortBy(_._2)
     if ccw then ordering else ordering.reverse 
   end getRadialOrderingNeigbors 
 
