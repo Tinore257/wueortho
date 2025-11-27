@@ -16,8 +16,30 @@ import wueortho.data.AlignedGraph
 import wueortho.data.BasicGraph
 import wueortho.util.GraphConversions.sg2dg
 import wueortho.data.IntersectionTools
+import scala.compiletime.ops.boolean
+import org.jgrapht.graph.SimpleGraph
+import javax.swing.plaf.basic.BasicTextUI.BasicCaret
+import wueortho.data.Graph
+import scala.compiletime.ops.double
+import wueortho.data.AlignedLink
+import wueortho.data.BasicLink
+extension (a: Vec2D)
+  def *(scale: Double): Vec2D =
+    Vec2D(a.x1 * scale, a.x2 * scale)
 
 object GreedyOrthogonalization:
+
+  @main 
+  def testMain() =
+    val aEdes = Seq(AlignedEdge(NodeIndex(0), NodeIndex(1), Direction.North), AlignedEdge(NodeIndex(0), NodeIndex(4), Direction.East))
+    val allEdges = Seq((0, 1), (0, 2), (0, 3), (0, 4)).map(e => SimpleEdge(NodeIndex(e._1), NodeIndex(e._2)))
+    val graph = Graph.fromEdges(allEdges).mkBasicGraph
+    val posSeq = IndexedSeq(Vec2D(0, 0), Vec2D(0, 3), Vec2D(2, 3), Vec2D(3, 2), Vec2D(3, 0))
+    val pos = VertexLayout(posSeq)
+    val unaligendEdges = getUnalignedOfQuadrant(graph, NodeIndex(0), 1, Some(SimpleEdge(NodeIndex(0), NodeIndex(4))), Some(SimpleEdge(NodeIndex(0), NodeIndex(1))), pos)
+    val e = 0;
+  end testMain
+
 
   def topologicalSort(ids: Seq[NodeIndex], neighbors: NodeIndex => Seq[NodeIndex]): Seq[NodeIndex] =
     val visited  = mutable.BitSet.empty
@@ -43,6 +65,151 @@ object GreedyOrthogonalization:
 
     return result.toSeq
   end topologicalSort
+
+  def getAngle(reference:NodeIndex, n: NodeIndex, pos: VertexLayout) =
+    math.atan2(pos(n).x2 - pos(reference).x2, pos(n).x1 - pos(reference).x1) 
+  end getAngle
+
+  /**
+    * sorts the neigbors based on their angle relativ to node 
+    *
+    * @param node the reference point
+    * @param neigbors points to sort
+    * @param pos position vector of all points
+    * @param ccw 
+    * @return
+    */
+  def getRadialOrdering(node: NodeIndex, neigbors: Seq[NodeIndex], pos: VertexLayout, ccw: Boolean = true): IndexedSeq[(NodeIndex, Double)] =
+    val ordering = neigbors.toIndexedSeq.map(n => (n, getAngle(node, n, pos))).sortBy(_._2)
+    if ccw then ordering else ordering.reverse 
+  end getRadialOrdering 
+
+   def getRadialOrderingNeigbors(node: NodeIndex, neigborsEdges: Seq[SimpleEdge], pos: VertexLayout, ccw: Boolean = true): IndexedSeq[(SimpleEdge, Double)] =
+    val ordering = neigborsEdges.toIndexedSeq.map(n => (n, getAngle(node, n.to, pos))).sortBy(_._2)
+    if ccw then ordering else ordering.reverse 
+  end getRadialOrderingNeigbors 
+
+  /**
+    * creates a new Graph such that the given edge is splitted into two edges
+    *
+    * @param graph
+    * @param edge to split
+    * @param pos positions of all nodes
+    * @param positionFactor scaling factor to position new node
+    * @return
+    */
+  def splitEdge(graph: BasicGraph, alignedGraph: AlignedGraph, edge: AlignedEdge, pos: VertexLayout, positionFactor: Double, neighbor: Option[NodeIndex]): (BasicGraph, AlignedGraph, VertexLayout, NodeIndex) = 
+    val (aEdgesToRemove, uEdgesToRemove) = neighbor match
+      case Some(value) => (Seq(edge), Seq(SimpleEdge(edge.from, value), SimpleEdge(value, edge.from)))
+      case None => (Seq(edge), Seq.empty)
+    val withoutEdge = graph.edges.toSet--(uEdgesToRemove)
+    val iPos = ((pos(edge.from) - pos(edge.to)) * positionFactor) + pos(edge.from)
+    val newNodeIndex = NodeIndex(graph.vertices.length)
+    val edgeToNeigbor = neighbor.map(e => AlignedEdge(newNodeIndex, e, edge.direction.turnCCW))
+    val additionalEdges: Seq[AlignedEdge] = Seq(AlignedEdge(edge.from, newNodeIndex, edge.direction), AlignedEdge(newNodeIndex, edge.to, edge.direction)).appendedAll(edgeToNeigbor)
+    val newGraph = Graph.fromEdges(withoutEdge.++(additionalEdges.map(_.unalign)).toSeq).mkBasicGraph
+    val newAGraph = AlignedGraph.fromAlignedEdges(alignedGraph.edges.toSet.--(aEdgesToRemove).++(additionalEdges).toSeq).mkAlignedGraph
+    (newGraph, newAGraph, VertexLayout(pos._1.:+(iPos)), newNodeIndex)
+  end splitEdge
+
+
+  def alignUnalignedEdge(graph: BasicGraph, alignedGraph: AlignedGraph, pos: VertexLayout, edge: AlignedEdge, unalignedEdges: IndexedSeq[SimpleEdge]): (BasicGraph, AlignedGraph, VertexLayout) =  
+    val sortedNeighborsEdges = getRadialOrderingNeigbors(edge.from, unalignedEdges, pos).reverse
+    val sortedNeighbors = sortedNeighborsEdges.map(_._1).map(e => if e.from == edge.from  then e.to else e.from)
+    var currentEdge = edge
+    var currentGraph = graph
+    var currentAlignedGraph = alignedGraph
+    var currentPos = pos
+    var currentNode = edge.from
+    val factor = 0.01
+    for neighbor <- sortedNeighbors do
+      val newStatus = splitEdge(currentGraph, currentAlignedGraph, currentEdge, currentPos, factor, Some(neighbor))
+      currentGraph = newStatus._1
+      currentAlignedGraph = newStatus._2
+      currentPos = newStatus._3
+      currentNode = newStatus._4
+      val newAlignedEdge = SimpleEdge(edge.from, currentNode)
+      currentGraph = Graph.fromEdges(currentGraph.edges.:+(newAlignedEdge)).mkBasicGraph
+    end for
+
+    (graph, currentAlignedGraph, pos)
+  end alignUnalignedEdge
+
+  def getEdgeInterval(edges: IndexedSeq[SimpleEdge], low: Option[SimpleEdge], high:Option[SimpleEdge]): IndexedSeq[SimpleEdge] =
+    if low.isEmpty && high.isEmpty then return edges
+    val cyclic = edges.++(edges)
+    val suffix = low match
+      case Some(value) => cyclic.dropWhile(_.to != value.to).drop(1)
+      case None => edges
+    val prefix = high match
+      case Some(value) => suffix.takeWhile(_.to != value.to)
+      case None => suffix
+    prefix
+  end getEdgeInterval
+
+
+  def getUnalignedOfQuadrant(graph: BasicGraph, referenceNode: NodeIndex, quadrant: Int, start: Option[SimpleEdge], stop: Option[SimpleEdge], pos: VertexLayout): IndexedSeq[NodeIndex] = 
+    val edges = graph.vertices(referenceNode.toInt).neighbors.map(n => SimpleEdge(referenceNode, n.toNode))
+    def quadrantToAngles(quadrant: Int) = 
+      val list = IndexedSeq(0, 1, 2, 3, 4, 5).map(_ * Math.PI / 2.0)
+      val sublist = list.sliding(2).toIndexedSeq((quadrant - 1) % 4)
+      (sublist(0), sublist(1)):(low: Double, high: Double)
+    //val sortedEdges = getRadialOrderingNeigbors(referenceNode, edges.toSeq, pos).filter(n => n._2 >= quadrantToAngles(quadrant).low && n._2 < quadrantToAngles(quadrant).high ).map(_._1)
+    val sortedEdges = getRadialOrderingNeigbors(referenceNode, edges.toSeq, pos).map(_._1)
+    val betweenAlignedEdges = getEdgeInterval(sortedEdges, start, stop)
+    betweenAlignedEdges.map(_.to)
+  end getUnalignedOfQuadrant
+
+  def getReverseEdge(e: SimpleEdge): SimpleEdge = 
+    SimpleEdge(e.to, e.from)
+  end getReverseEdge
+
+  def aLink2Edge(startNode: NodeIndex, l: AlignedLink): SimpleEdge =
+    SimpleEdge(startNode, l.toNode) 
+
+  def link2Edge(startNode: NodeIndex, l: BasicLink): SimpleEdge =
+    SimpleEdge(startNode, l.toNode)  
+
+  def alignAllNeigbors(graph: BasicGraph, alignedGraph: AlignedGraph , pos: VertexLayout, node: NodeIndex): (BasicGraph, AlignedGraph, VertexLayout) =
+    def borderDirsFromQuadrant(quadrant: Int): (Direction, Direction) =
+      val list = IndexedSeq(Direction.East, Direction.North, Direction.West, Direction.South, Direction.East)
+      val border = list.sliding(2).toIndexedSeq((quadrant - 1)%2)
+      (border(0), border(1))
+    end borderDirsFromQuadrant
+    
+    val unaligendEdges = graph.vertices(node.toInt).neighbors.filter(l => !alignedGraph.vertices(node.toInt).neighbors.exists(a => a.toNode == l.toNode))
+    val aligendEdges = alignedGraph.vertices(node.toInt).neighbors
+
+    var status: (currentGraph: BasicGraph, currentAlignedGraph: AlignedGraph, currentPos: VertexLayout) = (graph, alignedGraph,pos)
+
+    for quadrant <- Range(1, 5) do
+      val dirsForCurrentQuadrant = borderDirsFromQuadrant(quadrant)
+      
+      //bounds for interval
+      val (low, high) = (aligendEdges.find(_.direction == dirsForCurrentQuadrant._1), aligendEdges.find(_.direction == dirsForCurrentQuadrant._2))
+      
+      //helper functions
+      val aToEdge = aLink2Edge(node, _)
+      val toEdge = link2Edge(node,_)
+      
+      val unalignedInQuadrant = getUnalignedOfQuadrant(graph, node, quadrant, low.map(aToEdge), high.map(aToEdge),pos).map(SimpleEdge(node, _))
+      val (edgeToAlignTo, alignmentDir) = if low.isDefined then (low, low.get.direction.turnCW) else if high.isDefined then (high, high.get.direction.turnCCW) else (Option.empty, Direction.North)
+      if edgeToAlignTo.isDefined then 
+        val unalignedWithoutConflicts = unalignedInQuadrant.filter(e => alignedGraph.vertices(e.to.toInt).neighbors.forall(l => l.direction != alignmentDir))
+        status = alignUnalignedEdge(status.currentGraph, status.currentAlignedGraph, status.currentPos, AlignedEdge(node, edgeToAlignTo.get.toNode, edgeToAlignTo.get.direction), unalignedWithoutConflicts)
+    end for
+    status
+  end alignAllNeigbors
+  
+  def allignAllUnalignedEdges(graph: BasicGraph, aligendGraph: AlignedGraph, pos: VertexLayout): (BasicGraph, AlignedGraph, VertexLayout) =
+    val unalignedEdges = graph.edges.toSet.--(aligendGraph.edges.flatMap(e => Seq(e.unalign, getReverseEdge(e.unalign))))
+    var status: (currentGraph: BasicGraph, currentAlignedGraph: AlignedGraph, currentPos: VertexLayout) = (graph, aligendGraph, pos)
+    val nodesWithUnalignedEdges = unalignedEdges.flatMap(e => Seq(e.from, e.to)).toIndexedSeq.sortBy(v => graph.vertices(v.toInt).neighbors.length).reverse
+    for node <- nodesWithUnalignedEdges do
+      status = alignAllNeigbors(status.currentGraph, status.currentAlignedGraph, status.currentPos, node)
+    end for
+    status
+  end allignAllUnalignedEdges
 
   def greedyAlignedGraph(graph: BasicGraph, init: VertexLayout, boxes: VertexBoxes): AlignedGraph =
     val n = graph.numberOfVertices
