@@ -31,12 +31,12 @@ object GreedyOrthogonalization:
 
   @main 
   def testMain() =
-    val aEdes = Seq(AlignedEdge(NodeIndex(0), NodeIndex(1), Direction.North), AlignedEdge(NodeIndex(0), NodeIndex(4), Direction.East))
-    val allEdges = Seq((0, 1), (0, 2), (0, 3), (0, 4)).map(e => SimpleEdge(NodeIndex(e._1), NodeIndex(e._2)))
+    val aEdges = Seq(AlignedEdge(NodeIndex(0), NodeIndex(1), Direction.North), AlignedEdge(NodeIndex(0), NodeIndex(4), Direction.East))
+    val allEdges = Seq((0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (0, 6), (0, 7)).map(e => SimpleEdge(NodeIndex(e._1), NodeIndex(e._2)))
     val graph = Graph.fromEdges(allEdges).mkBasicGraph
-    val posSeq = IndexedSeq(Vec2D(0, 0), Vec2D(0, 3), Vec2D(2, 3), Vec2D(3, 2), Vec2D(3, 0))
+    val posSeq = IndexedSeq(Vec2D(0, 0), Vec2D(0, 3), Vec2D(2, 3), Vec2D(3, 2), Vec2D(3, 0), Vec2D(3, 3), Vec2D(3, -1), Vec2D(-2, 3))
     val pos = VertexLayout(posSeq)
-    val unaligendEdges = getUnalignedOfQuadrant(graph, NodeIndex(0), 1, Some(SimpleEdge(NodeIndex(0), NodeIndex(4))), Some(SimpleEdge(NodeIndex(0), NodeIndex(1))), pos)
+    val unaligendEdges = getUnalignedOfQuadrant(graph, NodeIndex(0), 1, Option.empty, Option.empty, pos)
     val e = 0;
   end testMain
 
@@ -143,20 +143,39 @@ object GreedyOrthogonalization:
       case None => edges
     val prefix = high match
       case Some(value) => suffix.takeWhile(_.to != value.to)
-      case None => suffix
+      case None => suffix.takeWhile(_.to != low.get.to)
     prefix
   end getEdgeInterval
 
-
+  /**
+    * returns all unaligned Neigbors of the referenceNode in the given quadrant. 
+    * if start and/or end edges are given, the quadrants are extended up to those edges
+    *
+    * @param graph
+    * @param referenceNode
+    * @param quadrant
+    * @param start
+    * @param stop
+    * @param pos
+    * @return
+    */
   def getUnalignedOfQuadrant(graph: BasicGraph, referenceNode: NodeIndex, quadrant: Int, start: Option[SimpleEdge], stop: Option[SimpleEdge], pos: VertexLayout): IndexedSeq[NodeIndex] = 
     val edges = graph.vertices(referenceNode.toInt).neighbors.map(n => SimpleEdge(referenceNode, n.toNode))
     def quadrantToAngles(quadrant: Int) = 
       val list = IndexedSeq(0, 1, 2, 3, 4, 5).map(_ * Math.PI / 2.0)
       val sublist = list.sliding(2).toIndexedSeq((quadrant - 1) % 4)
       (sublist(0), sublist(1)):(low: Double, high: Double)
+    val bounds = quadrantToAngles(quadrant)
     //val sortedEdges = getRadialOrderingNeigbors(referenceNode, edges.toSeq, pos).filter(n => n._2 >= quadrantToAngles(quadrant).low && n._2 < quadrantToAngles(quadrant).high ).map(_._1)
-    val sortedEdges = getRadialOrderingNeigbors(referenceNode, edges.toSeq, pos).map(_._1)
+    val sortedWithAngle = getRadialOrderingNeigbors(referenceNode, edges.toSeq, pos)
+    val clipped = (start, stop) match
+      case (Some(_), Some(_)) => sortedWithAngle
+      case (Some(_), None) => sortedWithAngle.filter(e => e._2 < bounds.high)
+      case (None, Some(_)) => sortedWithAngle.filter(e => e._2 >= bounds.low)
+      case (None, None) => sortedWithAngle.filter(e => e._2 >= bounds.low && e._2 < bounds.high)
+    val sortedEdges = clipped.map(_._1)
     val betweenAlignedEdges = getEdgeInterval(sortedEdges, start, stop)
+
     betweenAlignedEdges.map(_.to)
   end getUnalignedOfQuadrant
 
