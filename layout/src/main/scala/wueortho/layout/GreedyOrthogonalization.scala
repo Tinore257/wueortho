@@ -16,11 +16,7 @@ import wueortho.data.AlignedGraph
 import wueortho.data.BasicGraph
 import wueortho.util.GraphConversions.sg2dg
 import wueortho.data.IntersectionTools
-import scala.compiletime.ops.boolean
-import org.jgrapht.graph.SimpleGraph
-import javax.swing.plaf.basic.BasicTextUI.BasicCaret
 import wueortho.data.Graph
-import scala.compiletime.ops.double
 import wueortho.data.AlignedLink
 import wueortho.data.BasicLink
 extension (a: Vec2D)
@@ -38,10 +34,11 @@ object GreedyOrthogonalization:
     val posSeq = IndexedSeq(Vec2D(0, 0), Vec2D(0, 3), Vec2D(2, 3), Vec2D(3, 2), Vec2D(3, 0), Vec2D(3, 3), Vec2D(3, -1), Vec2D(-2, 3))
     val pos = VertexLayout(posSeq)
     val unaligendNeighbors = getUnalignedOfQuadrant(graph, NodeIndex(0), 1, Option.empty, Option.empty, pos)
-    val s = splitAlignedEdge(graph, aGraph, aEdges(0), pos, 0.001)
+    //val s = splitAlignedEdge(graph, aGraph, aEdges(0), pos, 0.001)
     val unalignedEdges = unaligendNeighbors.map(v => SimpleEdge(NodeIndex(0), v))
-    val a = alignUnalignedEdges(graph, aGraph, pos, aEdges(0), unalignedEdges)
-    val e = 0;
+    //val a = alignUnalignedEdges(graph, aGraph, pos, aEdges(0), unalignedEdges)
+    val b = alignAllNeighbors(graph, aGraph, pos, NodeIndex(0))
+    val x = 0;
   end testMain
 
 
@@ -139,6 +136,8 @@ object GreedyOrthogonalization:
     val newAGraph = AlignedGraph.fromAlignedEdges(alignedGraph.edges.appended(aNewEdge)).mkAlignedGraph
     (newGraph, newAGraph)
   end flipEdgeToAlignendEdge
+    
+  def hasNoConflicitingAlignment(neighbor: NodeIndex, alignedGraph: AlignedGraph, direction: Direction): Boolean = alignedGraph.vertices.size <= neighbor.toInt || !alignedGraph.vertices(neighbor.toInt).neighbors.exists(_.direction == direction)
 
   def alignUnalignedEdges(graph: BasicGraph, alignedGraph: AlignedGraph, pos: VertexLayout, edgeToSplit: AlignedEdge, unalignedEdges: IndexedSeq[SimpleEdge]): (BasicGraph, AlignedGraph, VertexLayout) =  
     // sorted smallest angle to edgeToSplit to highest
@@ -146,11 +145,10 @@ object GreedyOrthogonalization:
     val sortedNeighbors = sortedNeighborsEdges.map(_._1).map(e => if e.from == edgeToSplit.from then e.to else e.from)
     var currentEdgeToSplit = edgeToSplit
     var status : (graph: BasicGraph, alignedGraph: AlignedGraph, pos: VertexLayout, topNode: NodeIndex) =  (graph, alignedGraph, pos, edgeToSplit.to)
-    def hasNoConflicitingAlignment(neighbor: NodeIndex): Boolean = alignedGraph.vertices.size <= neighbor.toInt || !alignedGraph.vertices(neighbor.toInt).neighbors.exists(_.direction == edgeToSplit.direction.turnCCW)
-    var totalDocks = sortedNeighbors.filter(neighbor => hasNoConflicitingAlignment(neighbor)).size + 1    
+    var totalDocks = sortedNeighbors.filter(neighbor => hasNoConflicitingAlignment(neighbor, alignedGraph, edgeToSplit.direction.turnCCW)).size + 1    
     var factor = 0.01 
     for neighbor <- sortedNeighbors do
-      if hasNoConflicitingAlignment(neighbor) then
+      if hasNoConflicitingAlignment(neighbor, alignedGraph, edgeToSplit.direction.turnCCW) then
         status = splitAlignedEdge(status.graph, status.alignedGraph, currentEdgeToSplit, status.pos, factor)
         currentEdgeToSplit = AlignedEdge(edgeToSplit.from, status.topNode, edgeToSplit.direction)
         //add edge from neighbor to node
@@ -199,8 +197,8 @@ object GreedyOrthogonalization:
   def getUnalignedOfQuadrant(graph: BasicGraph, referenceNode: NodeIndex, quadrant: Int, start: Option[SimpleEdge], stop: Option[SimpleEdge], pos: VertexLayout): IndexedSeq[NodeIndex] = 
     val edges = graph.vertices(referenceNode.toInt).neighbors.map(n => SimpleEdge(referenceNode, n.toNode))
     def quadrantToAngles(quadrant: Int) = 
-      val list = IndexedSeq(0, 1, 2, 3, 4, 5).map(_ * Math.PI / 2.0)
-      val sublist = list.sliding(2).toIndexedSeq((quadrant - 1) % 4)
+      val list = IndexedSeq(0, 1, 1, 2, -2, -1, -1,  0).map(_ * Math.PI / 2.0)
+      val sublist = list.sliding(2, 2).toIndexedSeq((quadrant - 1) % 4)
       (sublist(0), sublist(1)):(low: Double, high: Double)
     val bounds = quadrantToAngles(quadrant)
     //val sortedEdges = getRadialOrderingNeigbors(referenceNode, edges.toSeq, pos).filter(n => n._2 >= quadrantToAngles(quadrant).low && n._2 < quadrantToAngles(quadrant).high ).map(_._1)
@@ -229,7 +227,7 @@ object GreedyOrthogonalization:
   def alignAllNeighbors(graph: BasicGraph, alignedGraph: AlignedGraph , pos: VertexLayout, node: NodeIndex): (BasicGraph, AlignedGraph, VertexLayout) =
     def borderDirsFromQuadrant(quadrant: Int): (Direction, Direction) =
       val list = IndexedSeq(Direction.East, Direction.North, Direction.West, Direction.South, Direction.East)
-      val border = list.sliding(2).toIndexedSeq((quadrant - 1)%2)
+      val border = list.sliding(2).toIndexedSeq((quadrant - 1)%4)
       (border(0), border(1))
     end borderDirsFromQuadrant
     
@@ -240,19 +238,22 @@ object GreedyOrthogonalization:
 
     for quadrant <- Range(1, 5) do
       val dirsForCurrentQuadrant = borderDirsFromQuadrant(quadrant)
-      
-      //bounds for interval
-      val (low, high) = (aligendEdges.find(_.direction == dirsForCurrentQuadrant._1), aligendEdges.find(_.direction == dirsForCurrentQuadrant._2))
-      
       //helper functions
       val aToEdge = aLink2Edge(node, _)
       val toEdge = link2Edge(node,_)
       
-      val unalignedInQuadrant = getUnalignedOfQuadrant(graph, node, quadrant, low.map(aToEdge), high.map(aToEdge),pos).map(SimpleEdge(node, _))
-      val (edgeToAlignTo, alignmentDir) = if low.isDefined then (low, low.get.direction.turnCW) else if high.isDefined then (high, high.get.direction.turnCCW) else (Option.empty, Direction.North)
-      if edgeToAlignTo.isDefined then 
-        val unalignedWithoutConflicts = unalignedInQuadrant.filter(e => alignedGraph.vertices(e.to.toInt).neighbors.forall(l => l.direction != alignmentDir))
-        status = alignUnalignedEdges(status.currentGraph, status.currentAlignedGraph, status.currentPos, AlignedEdge(node, edgeToAlignTo.get.toNode, edgeToAlignTo.get.direction), unalignedWithoutConflicts)
+      //bounds for interval
+      val (low, high) = (aligendEdges.find(_.direction == dirsForCurrentQuadrant._1), aligendEdges.find(_.direction == dirsForCurrentQuadrant._2))
+      
+      if high.isDefined then 
+        val unalignedInQuadrant = getUnalignedOfQuadrant(graph, node, quadrant, low.map(aToEdge), high.map(aToEdge),pos).map(SimpleEdge(node, _))
+        //val (edgeToAlignTo, alignmentDir) = if high.isDefined then (high, high.get.direction.turnCCW) else if low.isDefined then (low, low.get.direction.turnCW) else (Option.empty, Direction.North)
+        val (edgeToAlignTo, alignmentDir) = if high.isDefined then (high, high.get.direction.turnCCW) else (Option.empty, Direction.North)
+        if edgeToAlignTo.isDefined then 
+          val unalignedWithoutConflicts = unalignedInQuadrant.filter(e => hasNoConflicitingAlignment(e.to, alignedGraph, alignmentDir))
+          status = alignUnalignedEdges(status.currentGraph, status.currentAlignedGraph, status.currentPos, AlignedEdge(node, edgeToAlignTo.get.toNode, edgeToAlignTo.get.direction), unalignedWithoutConflicts)
+        end if
+      end if
     end for
     status
   end alignAllNeighbors
