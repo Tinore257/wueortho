@@ -38,7 +38,7 @@ object GreedyOrthogonalization:
     val posSeq = IndexedSeq(Vec2D(0, 0), Vec2D(0, 3), Vec2D(2, 3), Vec2D(3, 2), Vec2D(3, 0), Vec2D(3, 3), Vec2D(3, -1), Vec2D(-2, 3))
     val pos = VertexLayout(posSeq)
     val unaligendNeighbors = getUnalignedOfQuadrant(graph, NodeIndex(0), 1, Option.empty, Option.empty, pos)
-    val s = splitEdge(graph, aGraph, aEdges(0), pos, 0.001,Some(NodeIndex(2)))
+    val s = splitAlignedEdge(graph, aGraph, aEdges(0), pos, 0.001)
     val unalignedEdges = unaligendNeighbors.map(v => SimpleEdge(NodeIndex(0), v))
     val a = alignUnalignedEdges(graph, aGraph, pos, aEdges(0), unalignedEdges)
     val e = 0;
@@ -107,8 +107,13 @@ object GreedyOrthogonalization:
     Seq(SimpleEdge(from, to), SimpleEdge(to, from))
   end bothSimpleEdges
 
+  def bothAlignedEdges(e: AlignedEdge): Seq[AlignedEdge] = 
+    Seq(AlignedEdge(e.from, e.to, e.direction), AlignedEdge(e.to, e.from, e.direction.reverse))
+  end bothAlignedEdges
+
+
   /**
-    * creates a new Graph such that the given edge is splitted into two edges
+    * creates a new Graph such that the given aligned edge is splitted into two edges
     *
     * @param graph
     * @param edge to split
@@ -116,44 +121,47 @@ object GreedyOrthogonalization:
     * @param positionFactor scaling factor to position new node
     * @return
     */
-  def splitEdge(graph: BasicGraph, alignedGraph: AlignedGraph, edge: AlignedEdge, pos: VertexLayout, positionFactor: Double, neighbor: Option[NodeIndex]): (BasicGraph, AlignedGraph, VertexLayout, NodeIndex) = 
-    val (aEdgesToRemove, uEdgesToRemove) = neighbor match
-      case Some(value) => (Seq(edge), bothSimpleEdges(edge.from, edge.to)++bothSimpleEdges(edge.from, value))
-      case None => (Seq(edge), bothSimpleEdges(edge.from, edge.to))
+  def splitAlignedEdge(graph: BasicGraph, alignedGraph: AlignedGraph, edge: AlignedEdge, pos: VertexLayout, positionFactor: Double): (BasicGraph, AlignedGraph, VertexLayout, NodeIndex) = 
+    val (aEdgesToRemove, uEdgesToRemove) = (bothAlignedEdges(edge), bothSimpleEdges(edge.from, edge.to))
     val withoutEdge = graph.edges.toSet--(uEdgesToRemove)
-    val iPos = ((pos(edge.from) - pos(edge.to)) * positionFactor) + pos(edge.from)
+    val iPos = ((pos(edge.to) - pos(edge.from)) * positionFactor) + pos(edge.from)
     val newNodeIndex = NodeIndex(graph.vertices.length)
-    val edgeToNeigbor = neighbor.map(e => AlignedEdge(newNodeIndex, e, edge.direction.turnCW))
-    val additionalEdges: Seq[AlignedEdge] = Seq(AlignedEdge(edge.from, newNodeIndex, edge.direction), AlignedEdge(newNodeIndex, edge.to, edge.direction)).appendedAll(edgeToNeigbor)
+    val additionalEdges: Seq[AlignedEdge] = Seq(AlignedEdge(edge.from, newNodeIndex, edge.direction), AlignedEdge(newNodeIndex, edge.to, edge.direction))
     val newGraph = Graph.fromEdges(withoutEdge.++(additionalEdges.map(_.unalign)).toSeq).mkBasicGraph
     val newAGraph = AlignedGraph.fromAlignedEdges(alignedGraph.edges.toSet.--(aEdgesToRemove).++(additionalEdges).toSeq).mkAlignedGraph
     (newGraph, newAGraph, VertexLayout(pos._1.:+(iPos)), newNodeIndex)
-  end splitEdge
+  end splitAlignedEdge
 
+  def flipEdgeToAlignendEdge(graph: BasicGraph, alignedGraph: AlignedGraph, oldStart: NodeIndex, newStart:NodeIndex, node: NodeIndex, dir: Direction): (graph: BasicGraph, alignedGraph: AlignedGraph) = 
+    val uEdgesToRemove = bothSimpleEdges(oldStart, node)
+    val aNewEdge = AlignedEdge(newStart, node, dir)
+    val newGraph = Graph.fromEdges(graph.edges.toSet.--(uEdgesToRemove).+(aNewEdge.unalign).toSeq).mkBasicGraph
+    val newAGraph = AlignedGraph.fromAlignedEdges(alignedGraph.edges.appended(aNewEdge)).mkAlignedGraph
+    (newGraph, newAGraph)
+  end flipEdgeToAlignendEdge
 
   def alignUnalignedEdges(graph: BasicGraph, alignedGraph: AlignedGraph, pos: VertexLayout, edgeToSplit: AlignedEdge, unalignedEdges: IndexedSeq[SimpleEdge]): (BasicGraph, AlignedGraph, VertexLayout) =  
     // sorted smallest angle to edgeToSplit to highest
-    val sortedNeighborsEdges = getRadialOrderingNeighbors(edgeToSplit.from, unalignedEdges, pos)
-    val sortedNeighbors = sortedNeighborsEdges.map(_._1).map(e => if e.from == edgeToSplit.from  then e.to else e.from)
+    val sortedNeighborsEdges = getRadialOrderingNeighbors(edgeToSplit.from, unalignedEdges, pos, false)
+    val sortedNeighbors = sortedNeighborsEdges.map(_._1).map(e => if e.from == edgeToSplit.from then e.to else e.from)
     var currentEdgeToSplit = edgeToSplit
-    var currentGraph = graph
-    var currentAlignedGraph = alignedGraph
-    var currentPos = pos
-    var currentNode = edgeToSplit.from
-    val factor = 0.01
+    var status : (graph: BasicGraph, alignedGraph: AlignedGraph, pos: VertexLayout, topNode: NodeIndex) =  (graph, alignedGraph, pos, edgeToSplit.to)
+    def hasNoConflicitingAlignment(neighbor: NodeIndex): Boolean = alignedGraph.vertices.size <= neighbor.toInt || !alignedGraph.vertices(neighbor.toInt).neighbors.exists(_.direction == edgeToSplit.direction.turnCCW)
+    var totalDocks = sortedNeighbors.filter(neighbor => hasNoConflicitingAlignment(neighbor)).size + 1    
+    var factor = 0.01 
     for neighbor <- sortedNeighbors do
-      //if alignedGraph.vertices(neighbor.toInt).neighbors.exists(_.direction == )
-      val newStatus = splitEdge(currentGraph, currentAlignedGraph, currentEdgeToSplit, currentPos, factor, Some(neighbor))
-      currentGraph = newStatus._1
-      currentAlignedGraph = newStatus._2
-      currentPos = newStatus._3
-      currentNode = newStatus._4
-      currentEdgeToSplit = AlignedEdge(edgeToSplit.from, currentNode, edgeToSplit.direction)
-      val newEdge = SimpleEdge(currentNode, neighbor)
-      currentGraph = Graph.fromEdges(currentGraph.edges.:+(newEdge)).mkBasicGraph
+      if hasNoConflicitingAlignment(neighbor) then
+        status = splitAlignedEdge(status.graph, status.alignedGraph, currentEdgeToSplit, status.pos, factor)
+        currentEdgeToSplit = AlignedEdge(edgeToSplit.from, status.topNode, edgeToSplit.direction)
+        //add edge from neighbor to node
+        val (newGraph, newAGraph) = flipEdgeToAlignendEdge(status.graph, status.alignedGraph, edgeToSplit.from,  status.topNode, neighbor, edgeToSplit.direction.turnCW)
+        status = (newGraph, newAGraph, status.pos, status.topNode)
+        factor = 1.0-(1.0/totalDocks)
+        totalDocks = totalDocks - 1
+      end if
     end for
 
-    (currentGraph, currentAlignedGraph, currentPos)
+    (status.graph, status.alignedGraph, status.pos)
   end alignUnalignedEdges
 
   /**
