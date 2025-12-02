@@ -19,6 +19,8 @@ import wueortho.data.IntersectionTools
 import wueortho.data.Graph
 import wueortho.data.AlignedLink
 import wueortho.data.BasicLink
+import org.jgrapht.graph.SimpleGraph
+import scala.collection.AbstractIterator
 extension (a: Vec2D)
   def *(scale: Double): Vec2D =
     Vec2D(a.x1 * scale, a.x2 * scale)
@@ -33,11 +35,12 @@ object GreedyOrthogonalization:
     val graph = Graph.fromEdges(allEdges).mkBasicGraph
     val posSeq = IndexedSeq(Vec2D(0, 0), Vec2D(0, 3), Vec2D(2, 3), Vec2D(3, 2), Vec2D(3, 0), Vec2D(3, 3), Vec2D(3, -1), Vec2D(-2, 3))
     val pos = VertexLayout(posSeq)
-    val unaligendNeighbors = getUnalignedOfQuadrant(graph, NodeIndex(0), 1, Option.empty, Option.empty, pos)
+    //val unaligendNeighbors = getUnalignedOfQuadrant(graph, NodeIndex(0), 1, Option.empty, Option.empty, pos)
     //val s = splitAlignedEdge(graph, aGraph, aEdges(0), pos, 0.001)
-    val unalignedEdges = unaligendNeighbors.map(v => SimpleEdge(NodeIndex(0), v))
+    //val unalignedEdges = unaligendNeighbors.map(v => SimpleEdge(NodeIndex(0), v))
     //val a = alignUnalignedEdges(graph, aGraph, pos, aEdges(0), unalignedEdges)
-    val b = alignAllNeighbors(graph, aGraph, pos, NodeIndex(0))
+    //val b = alignAllNeighbors(graph, aGraph, pos, NodeIndex(0))
+    val c = allignAllUnalignedEdges(graph, aGraph,pos)
     val x = 0;
   end testMain
 
@@ -137,7 +140,9 @@ object GreedyOrthogonalization:
     (newGraph, newAGraph)
   end flipEdgeToAlignendEdge
     
-  def hasNoConflicitingAlignment(neighbor: NodeIndex, alignedGraph: AlignedGraph, direction: Direction): Boolean = alignedGraph.vertices.size <= neighbor.toInt || !alignedGraph.vertices(neighbor.toInt).neighbors.exists(_.direction == direction)
+  def hasNoConflicitingAlignment(neighbor: NodeIndex, alignedGraph: AlignedGraph, direction: Direction): Boolean = 
+    alignedGraph.vertices.size <= neighbor.toInt || !alignedGraph.vertices(neighbor.toInt).neighbors.exists(_.direction == direction)
+  end hasNoConflicitingAlignment
 
   def alignUnalignedEdges(graph: BasicGraph, alignedGraph: AlignedGraph, pos: VertexLayout, edgeToSplit: AlignedEdge, unalignedEdges: IndexedSeq[SimpleEdge]): (BasicGraph, AlignedGraph, VertexLayout) =  
     // sorted smallest angle to edgeToSplit to highest
@@ -267,6 +272,74 @@ object GreedyOrthogonalization:
     end for
     status
   end allignAllUnalignedEdges
+
+  case class EdgeIntersectionWithPos(e: SimpleEdge, pos: Vec2D)
+
+  def getAllRayIntersections(graph: BasicGraph, pos: VertexLayout, start: NodeIndex, edgesToIgnore: Seq[SimpleEdge] = Seq.empty, dir: Vec2D = Vec2D(1, 0)): Seq[EdgeIntersectionWithPos] =
+    val maxPos = pos.nodes.map(p => p.x1 max p.x2).max * 2.0
+    val rayEndPos = Vec2D(dir.x1 * maxPos, dir.x2 * maxPos)
+    val posWithRay = VertexLayout(pos.nodes.appended(rayEndPos))
+    val rayEdge = SimpleEdge(start, NodeIndex(graph.vertices.size))
+    var intersections: Seq[EdgeIntersectionWithPos] = Seq.empty
+    for e <- graph.edges do
+      if IntersectionTools().intersect(rayEdge, e, posWithRay) then 
+        val point = IntersectionTools().getIntersectionPoint(rayEdge, e, posWithRay)
+        intersections = intersections.appended(EdgeIntersectionWithPos(e, point))
+      end if 
+    end for
+    intersections.filter(i => !edgesToIgnore.contains(i.e))
+  end getAllRayIntersections
+  
+  def getClosestIntersection(start: NodeIndex, pos: VertexLayout, intersections: Seq[EdgeIntersectionWithPos]): Option[EdgeIntersectionWithPos] = 
+    val getSquaredDist: (Vec2D) => Double = (other: Vec2D) =>
+      val deltaDist = pos(start) - other
+      deltaDist.x1 * deltaDist.x1 + deltaDist.x2 * deltaDist.x2
+    if (intersections.isEmpty) then return None
+    Some(intersections.sortBy(i => getSquaredDist(i.pos)).head)
+  end getClosestIntersection
+
+  def testContainmentInFace(graph: BasicGraph, pos: VertexLayout, start: NodeIndex): Seq[SimpleEdge] = 
+    val allIntersections = getAllRayIntersections(graph, pos, start)
+    if allIntersections.isEmpty then return Seq.empty
+    val closestIntersection = getClosestIntersection(start, pos, allIntersections) 
+    val (faceA, faceB) = (traverseFace(graph, pos, closestIntersection.get.e, true).toIndexedSeq, traverseFace(graph, pos, getReverseEdge(closestIntersection.get.e), true).toIndexedSeq) 
+    val (faceAIntersectedEdges, faceBIntersectedEdges) = (allIntersections.filter(i => faceA.contains(i.e) || faceA.contains(getReverseEdge(i.e))), allIntersections.filter(i => faceB.contains(i.e) || faceB.contains(getReverseEdge(i.e))))
+    // TODO!!!!!!!!!!!: Do more precise counting/ special cases
+    if faceAIntersectedEdges.size % 2 == 1 then return faceA
+    if faceBIntersectedEdges.size % 2 == 1 then return faceB
+    Seq.empty
+  end testContainmentInFace
+
+  def traverseFace(
+      graph: BasicGraph, 
+      pos: VertexLayout,
+      start: SimpleEdge,
+      cw: Boolean,
+      cyclic: Boolean = false,
+  ): Iterator[SimpleEdge] = 
+    new AbstractIterator[SimpleEdge] {
+      var currentEdge: SimpleEdge = start
+      var stopEdge: Option[SimpleEdge] = None
+      override def next(): SimpleEdge = 
+        val ToEdge = link2Edge(currentEdge.to,_)
+        val neighbors = graph.vertices(currentEdge.to.toInt).neighbors.map(ToEdge);
+        val radialSortedNeighbors = getRadialOrderingNeighbors(currentEdge.to, neighbors, pos, !cw)
+        val incommingEdge = radialSortedNeighbors.indexOf(getReverseEdge(currentEdge))
+        if incommingEdge == -1 then sys.error("incomming edge not found while traversing face!")
+        stopEdge = Some(start)
+        currentEdge = radialSortedNeighbors((incommingEdge + 1) % radialSortedNeighbors.size)._1
+        currentEdge
+      end next
+
+      override def hasNext: Boolean = 
+        !graph.vertices(currentEdge.to.toInt).neighbors.isEmpty && ( cyclic || (stopEdge.isEmpty || currentEdge != stopEdge.get))
+      end hasNext
+
+    }
+
+  end traverseFace
+
+
 
   def greedyAlignedGraph(graph: BasicGraph, init: VertexLayout, boxes: VertexBoxes): AlignedGraph =
     val n = graph.numberOfVertices
