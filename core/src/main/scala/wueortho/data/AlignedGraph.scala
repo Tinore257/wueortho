@@ -442,25 +442,10 @@ private case class AGImpl[Graph](
         )
       end split
 
-      def getIntersectionPoint(e1: AlignedEdge, e2: AlignedEdge, pos: VertexLayout): Vec2D =
-        // based on https://en.wikipedia.org/wiki/Line%E2%80%93line_intersection#Given_two_points_on_each_line
-        val vec2DToTuple         = (p: Vec2D) => (p.x1, p.x2)
-        val ((x1, y1), (x2, y2)) = (vec2DToTuple(pos(e1.from)), vec2DToTuple(pos(e1.to)))
-        val ((x3, y3), (x4, y4)) = (vec2DToTuple(pos(e2.from)), vec2DToTuple(pos(e2.to)))
-        val dx12                 = x1 - x2
-        val dx34                 = x3 - x4
-        val dy12                 = y1 - y2
-        val dy34                 = y3 - y4
-        val det12                = x1 * y2 - y1 * x2
-        val det34                = x3 * y4 - y3 * x4
-        val px                   = ((det12 * dx34) - (dx12 * det34)) / ((dx12 * dy34) - (dy12 * dx34))
-        val py                   = ((det12 * dy34) - (dy12 * det34)) / ((dx12 * dy34) - (dy12 * dx34))
-        Vec2D(px, py)
-      end getIntersectionPoint
 
       if !IntersectionTools().intersect(e1, e2, pos) then sys.error("Edges do not intersect")
       val newEdges = split(e1, crossNodeIndex).++(split(e2, crossNodeIndex))
-      val point    = getIntersectionPoint(e1, e2, pos)
+      val point    = IntersectionTools().getIntersectionPoint(e1.unalign, e2.unalign, pos)
       (newEdges, point)
     end splitEdgeIntersection
 
