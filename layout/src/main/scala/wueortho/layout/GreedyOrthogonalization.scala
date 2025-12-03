@@ -19,13 +19,13 @@ import wueortho.data.IntersectionTools
 import wueortho.data.Graph
 import wueortho.data.AlignedLink
 import wueortho.data.BasicLink
-import org.jgrapht.graph.SimpleGraph
 import scala.collection.AbstractIterator
-import wueortho.metrics.Crossings.interEdgeDist
-import org.jgrapht.event.EdgeTraversalEvent
+import scala.annotation.tailrec
 extension (a: Vec2D)
   def dot(b: Vec2D): Double =
     a.x1 * b.x1 + a.x2 * b.x2
+  def det(b: Vec2D): Double = 
+    a.x1 * b.x2 - a.x2 * b.x1
 
 object GreedyOrthogonalization:
 
@@ -43,16 +43,19 @@ object GreedyOrthogonalization:
     //val a = alignUnalignedEdges(graph, aGraph, pos, aEdges(0), unalignedEdges)
     //val b = alignAllNeighbors(graph, aGraph, pos, NodeIndex(0))
 
-    val allEdges2 = Seq((0, 1), (0, 3), (1, 2),(1, 8), (1, 9), (2, 3), (2, 4), (2, 6), (3, 4), (4, 5), (5, 6), (6, 7), (7,  8), (8, 9)).map(e => SimpleEdge(NodeIndex(e._1), NodeIndex(e._2)))
-    val posSeq2 = IndexedSeq(Vec2D(0, 0), Vec2D(0, 3), Vec2D(4, 3), Vec2D(4, 0), Vec2D(6, 2), Vec2D(7, 5), Vec2D(4, 6), Vec2D(2, 5), Vec2D(0, 6), Vec2D(-2, 5), Vec2D(1, 1))
+    //val allEdges2 = Seq((0, 1), (0, 3), (1, 2),(1, 11), (1, 9), (2, 3), (2, 4), (2, 6), (3, 4), (4, 5), (5, 6), (6, 7), (7,  8), (8, 10), (8, 9), (10, 11), (10, 12), (11, 12)).map(e => SimpleEdge(NodeIndex(e._1), NodeIndex(e._2)))
+    val allEdges2 = Seq((0, 1), (0, 3), (1, 11), (1, 9), (2, 3), (2, 4), (2, 6), (3, 4), (4, 5), (5, 6), (6, 7), (7,  8), (8, 10), (8, 9), (10, 11), (10, 12), (11, 13), (12, 13), (15, 16)).map(e => SimpleEdge(NodeIndex(e._1), NodeIndex(e._2)))
+    val posSeq2 = IndexedSeq(Vec2D(0, 0), Vec2D(0, 3), Vec2D(4, 3), Vec2D(4, 0), Vec2D(6, 2), Vec2D(7, 5), Vec2D(4, 6), Vec2D(2, 5), Vec2D(0, 6), Vec2D(-2, 5), Vec2D(0, 5), Vec2D(0, 4), Vec2D(1, 5), Vec2D(1, 4), Vec2D(1, 1), Vec2D(0.5, 2), Vec2D(3, 2))
     val pos2 = VertexLayout(posSeq2)
     val graph2 = Graph.fromEdges(allEdges2).mkBasicGraph
 
     //val c = allignAllUnalignedEdges(graph, aGraph,pos)
     //val d = IntersectionTools().intersect(allEdges2(0), allEdges2(1), pos2)
     //val e = traverseFace(graph2, pos2, SimpleEdge(NodeIndex(1), NodeIndex(2)), false).toSeq
-    val d = getAllRayIntersections(graph2, pos2, NodeIndex(10))
-    val f = getClosestIntersection(NodeIndex(10), pos2, d)
+    //val d = getAllRayIntersections(graph2, pos2, NodeIndex(14))
+    //val f = getClosestIntersection(NodeIndex(14), pos2, d)
+    val g = testContainmentInFace(graph2, pos2, NodeIndex(14) )
+    //val h = testOuterFace(graph2, SimpleEdge(NodeIndex(3), NodeIndex(0)), pos2)
 
     val x = 0;
   end testMain
@@ -294,13 +297,15 @@ object GreedyOrthogonalization:
     val posWithRay = VertexLayout(pos.nodes.appended(rayEndPos))
     val rayEdge = SimpleEdge(start, NodeIndex(pos.nodes.size))
     var intersections: Seq[EdgeIntersectionWithPos] = Seq.empty
+    def testBetween(e:SimpleEdge, test: NodeIndex)= 
+      val kEdgeOrigin = (pos(e.to) - pos(e.from)).dot(posWithRay(test)-pos(e.from))
+      val kEdgeEdge = (pos(e.to) - pos(e.from)).dot(pos(e.to) - pos(e.from))
+      0 < kEdgeOrigin && kEdgeOrigin < kEdgeEdge
     for e <- graph.edges do
-      if IntersectionTools().intersect(rayEdge, e, posWithRay, true) then 
+      if IntersectionTools().intersect(rayEdge, e, posWithRay, true) || (IntersectionTools().colinearityTest(rayEdge, e, posWithRay) && testBetween(rayEdge, e.from) )then 
         val point = if IntersectionTools().colinearityTest(rayEdge, e, posWithRay) then {
           // test between:
-          val kEdgeOrigin = (pos(e.to) - pos(e.from)).dot(posWithRay(rayEdge.from)-pos(e.from))
-          val kEdgeEdge = (pos(e.to) - pos(e.from)).dot(pos(e.to) - pos(e.from))
-          if (0 < kEdgeOrigin&& kEdgeOrigin < kEdgeEdge) then posWithRay(rayEdge.from)
+          if testBetween(e, rayEdge.from) then posWithRay(rayEdge.from)
           else if (pos(e.from) - pos(rayEdge.from)).len < (pos(e.to) - pos(rayEdge.from)).len then 
             pos(e.from) 
           else 
@@ -321,37 +326,46 @@ object GreedyOrthogonalization:
     Some(intersections.sortBy(i => getSquaredDist(i.pos)).head)
   end getClosestIntersection
 
-  def testContainmentInFace(graph: BasicGraph, pos: VertexLayout, start: NodeIndex): Seq[SimpleEdge] = 
-    val allIntersections = getAllRayIntersections(graph, pos, start)
-    if allIntersections.isEmpty then return Seq.empty
-    val closestIntersection = getClosestIntersection(start, pos, allIntersections) 
-    val (faceA, faceB) = (traverseFace(graph, pos, closestIntersection.get.e, true).toIndexedSeq, traverseFace(graph, pos, getReverseEdge(closestIntersection.get.e), true).toIndexedSeq) 
-    val (faceAIntersectedEdges, faceBIntersectedEdges) = (allIntersections.filter(i => faceA.contains(i.e) || faceA.contains(getReverseEdge(i.e))), allIntersections.filter(i => faceB.contains(i.e) || faceB.contains(getReverseEdge(i.e))))
-    
-    val posWithRay = VertexLayout(pos.nodes.appended(Vec2D(0, 1)))
-    val rayEdge = SimpleEdge(start, NodeIndex(graph.vertices.size))
-    
-    //Do more precise counting/ special cases
-    def getCriticalIntersections(faceIntersectedEdegs: Seq[EdgeIntersectionWithPos]):Int = 
-      val criticalEdges = faceIntersectedEdegs.filter(e => IntersectionTools().throughNodeTest(rayEdge, e.e.from, posWithRay) || IntersectionTools().throughNodeTest(rayEdge, e.e.to, posWithRay))
-      val prefix = criticalEdges.takeWhile(c => IntersectionTools().throughNodeTest(rayEdge, c.e.from, posWithRay))
-      val criticalWrapped = criticalEdges.drop(prefix.size).appendedAll(prefix)
-      // to start a critical sequence there must be a edge, where the start node is not colinear to the ray
-      val criticalSequeces = criticalWrapped.foldLeft(Seq.empty[Seq[EdgeIntersectionWithPos]])((acc, x) => (acc, x) match
-        case (Seq(), x) => Seq(Seq(x))
-        case (acc, x) if !IntersectionTools().throughNodeTest(rayEdge, x.e.from, posWithRay) => acc :+ Seq(x) 
-        case (Seq(_*), x) => acc.init:+(acc.last:+x)
-      )
-      val filteredSequences = criticalSequeces.filter(sequence => IntersectionTools().orientationTest(rayEdge, sequence.head.e.from, posWithRay) != IntersectionTools().orientationTest(rayEdge, sequence.last.e.to, posWithRay))
-      val simpleIntersections = faceIntersectedEdegs.filter(e => !IntersectionTools().throughNodeTest(rayEdge, e.e.from, posWithRay) && !IntersectionTools().throughNodeTest(rayEdge, e.e.to, posWithRay))
-      return filteredSequences.size + simpleIntersections.size
-    end getCriticalIntersections
-    
-    val (intersectionsA, intersectionsB) = (getCriticalIntersections(faceAIntersectedEdges), getCriticalIntersections(faceBIntersectedEdges)) 
+  @tailrec
+  def testContainmentInFace(graph: BasicGraph, pos: VertexLayout, start: NodeIndex, forbiddenEdges: Seq[SimpleEdge] = Seq.empty): Seq[SimpleEdge] = 
+    def go(graph: BasicGraph, pos: VertexLayout, start: NodeIndex, forbiddenEdges: Seq[SimpleEdge]): (Boolean, Seq[SimpleEdge]) =
+      val allIntersections = getAllRayIntersections(graph, pos, start, forbiddenEdges)
+      if allIntersections.isEmpty then return (false, Seq.empty)
+      val closestIntersection = getClosestIntersection(start, pos, allIntersections) 
+      val (faceA, faceB) = (traverseFace(graph, pos, closestIntersection.get.e, true).toIndexedSeq, traverseFace(graph, pos, getReverseEdge(closestIntersection.get.e), true).toIndexedSeq) 
+      //val (faceAIntersectedEdges, faceBIntersectedEdges) = (allIntersections.filter(i => faceA.contains(i.e) || faceA.contains(getReverseEdge(i.e))), allIntersections.filter(i => faceB.contains(i.e) || faceB.contains(getReverseEdge(i.e))))
+      val (faceAIntersectedEdges, faceBIntersectedEdges) = (faceA.filter(e => allIntersections.exists(_.e == e) || allIntersections.exists(_.e == getReverseEdge(e))), faceB.filter(e => allIntersections.exists(_.e == e) || allIntersections.exists(_.e == getReverseEdge(e))))
+      
+      val posWithRay = VertexLayout(pos.nodes.appended(Vec2D(0, 1) + pos(start)))
+      val rayEdge = SimpleEdge(start, NodeIndex(pos.nodes.size))
+      
+      //Do more precise counting/ special cases
+      def getCriticalIntersections(faceIntersectedEdegs: Seq[SimpleEdge]):Int = 
+        val criticalEdges = faceIntersectedEdegs.filter(e => IntersectionTools().throughNodeTest(rayEdge, e.from, posWithRay) || IntersectionTools().throughNodeTest(rayEdge, e.to, posWithRay))
+        val prefix = criticalEdges.takeWhile(c => IntersectionTools().throughNodeTest(rayEdge, c.from, posWithRay))
+        val criticalWrapped = criticalEdges.drop(prefix.size).appendedAll(prefix)
+        // to start a critical sequence there must be a edge, where the start node is not colinear to the ray
+        val criticalSequeces = criticalWrapped.foldLeft(Seq.empty[Seq[SimpleEdge]])((acc, x) => (acc, x) match
+          case (Seq(), x) => Seq(Seq(x))
+          case (acc, x) if !IntersectionTools().throughNodeTest(rayEdge, x.from, posWithRay) => acc :+ Seq(x) 
+          case (Seq(_*), x) => acc.init:+(acc.last:+x)
+        )
+        val filteredSequences = criticalSequeces.filter(sequence => IntersectionTools().orientationTest(rayEdge, sequence.head.from, posWithRay) != IntersectionTools().orientationTest(rayEdge, sequence.last.to, posWithRay))
+        val simpleIntersections = faceIntersectedEdegs.filter(e => !IntersectionTools().throughNodeTest(rayEdge, e.from, posWithRay) && !IntersectionTools().throughNodeTest(rayEdge, e.to, posWithRay))
+        //val isolatedEdgeIntersections = simpleIntersections.map(e => SimpleEdge(NodeIndex(e.from.toInt min e.to.toInt),NodeIndex(e.from.toInt max e.to.toInt))).groupBy(identity).filter(_.size > 1)
+        return filteredSequences.size + simpleIntersections.size // - isolatedEdgeIntersections.size
+      end getCriticalIntersections
+      
+      val (intersectionsA, intersectionsB) = (getCriticalIntersections(faceAIntersectedEdges), getCriticalIntersections(faceBIntersectedEdges)) 
 
-    if intersectionsA % 2 == 1 then return faceA
-    if intersectionsB % 2 == 1 then return faceB
-    Seq.empty
+      if intersectionsA % 2 == 1 then return (true, faceA)
+      if intersectionsB % 2 == 1 then return (true, faceB)
+      (false, faceA.++(faceB))
+    end go
+    val face = go(graph, pos, start, forbiddenEdges)
+    if face._2.isEmpty then return face._2
+    if face._1 && !testOuterFace(graph, face._2.head, pos) then return face._2
+    testContainmentInFace(graph, pos, start, forbiddenEdges.++(face._2))
   end testContainmentInFace
 
   def traverseFace(
@@ -382,6 +396,23 @@ object GreedyOrthogonalization:
     }
 
   end traverseFace
+
+
+  def testOuterFace(graph: BasicGraph, e: SimpleEdge, pos: VertexLayout): Boolean =
+    val edges =  traverseFace(graph, pos, e, true).toSeq
+    val cyclic = edges:++(edges.take(1))
+    if cyclic.size < 3 then return false
+    def angle(e1: SimpleEdge, e2: SimpleEdge): Double = 
+      val vec1 = pos(e1.from)-pos(e1.to)
+      val vec2 = pos(e2.to)-pos(e2.from)
+      val dot = vec1.dot(vec2)
+      val det = vec1.det(vec2)
+      math.atan2(det, dot)
+    end angle
+    
+    val angleSum = cyclic.sliding(2).map(l => angle(l.head, l.last)).sum
+    angleSum < 0
+  end testOuterFace
 
 
 
