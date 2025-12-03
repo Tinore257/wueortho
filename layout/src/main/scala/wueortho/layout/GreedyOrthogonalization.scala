@@ -44,14 +44,15 @@ object GreedyOrthogonalization:
     //val b = alignAllNeighbors(graph, aGraph, pos, NodeIndex(0))
 
     val allEdges2 = Seq((0, 1), (0, 3), (1, 2),(1, 8), (1, 9), (2, 3), (2, 4), (2, 6), (3, 4), (4, 5), (5, 6), (6, 7), (7,  8), (8, 9)).map(e => SimpleEdge(NodeIndex(e._1), NodeIndex(e._2)))
-    val posSeq2 = IndexedSeq(Vec2D(0, 0), Vec2D(0, 3), Vec2D(4, 3), Vec2D(4, 0), Vec2D(6, 2), Vec2D(7, 5), Vec2D(4, 6), Vec2D(2, 5), Vec2D(0, 6), Vec2D(-2, 5))
+    val posSeq2 = IndexedSeq(Vec2D(0, 0), Vec2D(0, 3), Vec2D(4, 3), Vec2D(4, 0), Vec2D(6, 2), Vec2D(7, 5), Vec2D(4, 6), Vec2D(2, 5), Vec2D(0, 6), Vec2D(-2, 5), Vec2D(1, 1))
     val pos2 = VertexLayout(posSeq2)
     val graph2 = Graph.fromEdges(allEdges2).mkBasicGraph
 
     //val c = allignAllUnalignedEdges(graph, aGraph,pos)
     //val d = IntersectionTools().intersect(allEdges2(0), allEdges2(1), pos2)
     //val e = traverseFace(graph2, pos2, SimpleEdge(NodeIndex(1), NodeIndex(2)), false).toSeq
-    val d = getAllRayIntersections(graph2, pos2, NodeIndex(0))
+    val d = getAllRayIntersections(graph2, pos2, NodeIndex(10))
+    val f = getClosestIntersection(NodeIndex(10), pos2, d)
 
     val x = 0;
   end testMain
@@ -291,7 +292,7 @@ object GreedyOrthogonalization:
     val maxPos = pos.nodes.map(p => p.x1 max p.x2).max * 2.0
     val rayEndPos = Vec2D(dir.x1 * maxPos, dir.x2 * maxPos) + pos(start)
     val posWithRay = VertexLayout(pos.nodes.appended(rayEndPos))
-    val rayEdge = SimpleEdge(start, NodeIndex(graph.vertices.size))
+    val rayEdge = SimpleEdge(start, NodeIndex(pos.nodes.size))
     var intersections: Seq[EdgeIntersectionWithPos] = Seq.empty
     for e <- graph.edges do
       if IntersectionTools().intersect(rayEdge, e, posWithRay, true) then 
