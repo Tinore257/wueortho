@@ -35,6 +35,10 @@ case class IntersectionTools():
     orientationTest(e1, e2.from, pos) == 0 && orientationTest(e1, e2.to, pos) == 0
   end colinearityTest
 
+  def throughNodeTest(e1: SimpleEdge, node: NodeIndex, pos: VertexLayout): Boolean =
+    orientationTest(e1, node, pos) == 0
+  end throughNodeTest
+
   def intersect(e1: SimpleEdge, e2: SimpleEdge, pos: VertexLayout): Boolean =
 
     // test for shared endpoint
