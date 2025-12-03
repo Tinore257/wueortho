@@ -39,10 +39,16 @@ case class IntersectionTools():
     orientationTest(e1, node, pos) == 0
   end throughNodeTest
 
-  def intersect(e1: SimpleEdge, e2: SimpleEdge, pos: VertexLayout): Boolean =
+  def intersect(
+      e1: SimpleEdge,
+      e2: SimpleEdge,
+      pos: VertexLayout,
+      ignoreEdgesWithSameEdpoint: Boolean = false,
+  ): Boolean =
 
     // test for shared endpoint
-    if Seq(e1.from, e1.to, e2.from, e2.to).map(id => pos(id)).combinations(2).exists(_.reduce(_ - _).len == 0)
+    if !ignoreEdgesWithSameEdpoint && Seq(e1.from, e1.to, e2.from, e2.to).map(id => pos(id)).combinations(2)
+        .exists(_.reduce(_ - _).len == 0)
     then return false
 
     def onSegment(p1: NodeIndex, p2: NodeIndex, node: NodeIndex) =

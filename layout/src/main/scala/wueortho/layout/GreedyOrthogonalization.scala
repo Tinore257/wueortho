@@ -24,8 +24,8 @@ import scala.collection.AbstractIterator
 import wueortho.metrics.Crossings.interEdgeDist
 import org.jgrapht.event.EdgeTraversalEvent
 extension (a: Vec2D)
-  def *(scale: Double): Vec2D =
-    Vec2D(a.x1 * scale, a.x2 * scale)
+  def dot(b: Vec2D): Double =
+    a.x1 * b.x1 + a.x2 * b.x2
 
 object GreedyOrthogonalization:
 
@@ -50,7 +50,8 @@ object GreedyOrthogonalization:
 
     //val c = allignAllUnalignedEdges(graph, aGraph,pos)
     //val d = IntersectionTools().intersect(allEdges2(0), allEdges2(1), pos2)
-    val e = traverseFace(graph2, pos2, SimpleEdge(NodeIndex(1), NodeIndex(2)), false).toSeq
+    //val e = traverseFace(graph2, pos2, SimpleEdge(NodeIndex(1), NodeIndex(2)), false).toSeq
+    val d = getAllRayIntersections(graph2, pos2, NodeIndex(0))
 
     val x = 0;
   end testMain
@@ -135,7 +136,7 @@ object GreedyOrthogonalization:
   def splitAlignedEdge(graph: BasicGraph, alignedGraph: AlignedGraph, edge: AlignedEdge, pos: VertexLayout, positionFactor: Double): (BasicGraph, AlignedGraph, VertexLayout, NodeIndex) = 
     val (aEdgesToRemove, uEdgesToRemove) = (bothAlignedEdges(edge), bothSimpleEdges(edge.from, edge.to))
     val withoutEdge = graph.edges.toSet--(uEdgesToRemove)
-    val iPos = ((pos(edge.to) - pos(edge.from)) * positionFactor) + pos(edge.from)
+    val iPos = ((pos(edge.to) - pos(edge.from)).scale(positionFactor)) + pos(edge.from)
     val newNodeIndex = NodeIndex(graph.vertices.length)
     val additionalEdges: Seq[AlignedEdge] = Seq(AlignedEdge(edge.from, newNodeIndex, edge.direction), AlignedEdge(newNodeIndex, edge.to, edge.direction))
     val newGraph = Graph.fromEdges(withoutEdge.++(additionalEdges.map(_.unalign)).toSeq).mkBasicGraph
@@ -293,8 +294,18 @@ object GreedyOrthogonalization:
     val rayEdge = SimpleEdge(start, NodeIndex(graph.vertices.size))
     var intersections: Seq[EdgeIntersectionWithPos] = Seq.empty
     for e <- graph.edges do
-      if IntersectionTools().intersect(rayEdge, e, posWithRay) then 
-        val point = IntersectionTools().getIntersectionPoint(rayEdge, e, posWithRay)
+      if IntersectionTools().intersect(rayEdge, e, posWithRay, true) then 
+        val point = if IntersectionTools().colinearityTest(rayEdge, e, posWithRay) then {
+          // test between:
+          val kEdgeOrigin = (pos(e.to) - pos(e.from)).dot(posWithRay(rayEdge.from)-pos(e.from))
+          val kEdgeEdge = (pos(e.to) - pos(e.from)).dot(pos(e.to) - pos(e.from))
+          if (0 < kEdgeOrigin&& kEdgeOrigin < kEdgeEdge) then posWithRay(rayEdge.from)
+          else if (pos(e.from) - pos(rayEdge.from)).len < (pos(e.to) - pos(rayEdge.from)).len then 
+            pos(e.from) 
+          else 
+            pos(e.to)
+        }
+        else IntersectionTools().getIntersectionPoint(rayEdge, e, posWithRay)
         intersections = intersections.appended(EdgeIntersectionWithPos(e, point))
       end if 
     end for
