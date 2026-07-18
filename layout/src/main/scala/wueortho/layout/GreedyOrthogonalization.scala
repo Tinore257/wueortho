@@ -21,6 +21,8 @@ import wueortho.data.AlignedLink
 import wueortho.data.BasicLink
 import scala.collection.AbstractIterator
 import scala.annotation.tailrec
+import wueortho.util.GraphSearch.bfs
+import javax.swing.plaf.basic.BasicGraphicsUtils
 extension (a: Vec2D)
   def dot(b: Vec2D): Double =
     a.x1 * b.x1 + a.x2 * b.x2
@@ -414,7 +416,51 @@ object GreedyOrthogonalization:
     angleSum < 0
   end testOuterFace
 
+  def getConnectedComponent(graph: BasicGraph, startNode: NodeIndex): Set[NodeIndex] =
+    val adj = (v: NodeIndex) => graph.vertices(v.toInt).neighbors.map(_.toNode)
+    bfs.traverse(adj, startNode).toSet
+  end getConnectedComponent
 
+  def getConnectedComponents(graph: BasicGraph): Set[Set[NodeIndex]] =
+    var uncheckedNodes                             = Range(0, graph.vertices.length).map(NodeIndex(_)).toSet
+    val allComponents: mutable.Set[Set[NodeIndex]] = mutable.Set.empty
+    while !uncheckedNodes.isEmpty do
+      val startNode = uncheckedNodes.toSeq(0)
+      val comp      = getConnectedComponent(graph, startNode)
+      uncheckedNodes = uncheckedNodes.--(comp)
+      allComponents.+=(comp)
+    end while
+    allComponents.toSet
+  end getConnectedComponents
+
+  def getOuterFace(graph: BasicGraph, pos: VertexLayout, componentEdges: Seq[SimpleEdge]): Seq[SimpleEdge] = 
+    var remainingEdges = componentEdges.toSet
+    while (!remainingEdges.isEmpty) do
+      val currentEdge = remainingEdges.head
+      if testOuterFace(graph, currentEdge, pos) then return traverseFace(graph,pos, currentEdge, true).toSeq
+      val currentFace = traverseFace(graph,pos, currentEdge, true)
+      remainingEdges = remainingEdges.--(currentFace)
+    end while
+    Seq.empty
+  end getOuterFace
+
+  def connectNestedComponents(graph: BasicGraph, pos: VertexLayout): BasicGraph = 
+    val components = getConnectedComponents(graph)  
+    var newEdges: Seq[SimpleEdge] = Seq.empty
+    for comp <- components do
+      val componentEdges = comp.flatMap(v => graph.vertices(v.toInt).neighbors.map(n => SimpleEdge(v,n.toNode)))
+      val isContainedIn = testContainmentInFace(graph, pos, comp.head, componentEdges.toSeq)
+      if !isContainedIn.isEmpty then
+        val componentOuterFace = getOuterFace(graph, pos, isContainedIn)
+        //TODO: Get outer face of component and connect to the face
+        // TODO: get leftmost or bottommost node instead of first
+         newEdges = newEdges:+(SimpleEdge(componentOuterFace.head.from, isContainedIn.head.from))
+      end if
+    end for
+    return Graph.fromEdges(graph.edges:++(newEdges)).mkBasicGraph
+    sys.error("No defined outer face of conected component!")
+    graph
+  end connectNestedComponents
 
   def greedyAlignedGraph(graph: BasicGraph, init: VertexLayout, boxes: VertexBoxes): AlignedGraph =
     val n = graph.numberOfVertices
@@ -456,7 +502,6 @@ object GreedyOrthogonalization:
 
     // TODO: assumes, that graph is undirected weighted graph
     val undirectedGraph = sg2dg(graph)
-
     val allEdges = undirectedGraph.edges
 
     // precalculate all edge angles
