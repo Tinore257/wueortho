@@ -23,6 +23,7 @@ import scala.collection.AbstractIterator
 import scala.annotation.tailrec
 import wueortho.util.GraphSearch.bfs
 import wueortho.layout.FlowNetworkEdgeLength.getMapEdgeToAdjacentFace
+import wueortho.routing.OrthogonalVisibilityGraph.edgeOfWorld
 extension (a: Vec2D)
   def dot(b: Vec2D): Double =
     a.x1 * b.x1 + a.x2 * b.x2
@@ -72,14 +73,20 @@ object GreedyOrthogonalization:
                         AlignedEdge(NodeIndex(9),NodeIndex(10), Direction.South),
                         AlignedEdge(NodeIndex(7),NodeIndex(10), Direction.East),
                         AlignedEdge(NodeIndex(10),NodeIndex(11), Direction.South),
-                        AlignedEdge(NodeIndex(12),NodeIndex(11), Direction.East),
+                        AlignedEdge(NodeIndex(17),NodeIndex(11), Direction.East),
                         AlignedEdge(NodeIndex(12),NodeIndex(13), Direction.North),
                         AlignedEdge(NodeIndex(3),NodeIndex(13), Direction.West),
+                        AlignedEdge(NodeIndex(12),NodeIndex(14), Direction.East),
+                        AlignedEdge(NodeIndex(14),NodeIndex(15), Direction.North),
+                        AlignedEdge(NodeIndex(15),NodeIndex(16), Direction.East),
+                        AlignedEdge(NodeIndex(17),NodeIndex(16), Direction.North),
                         )
     val graph3 = AlignedGraph.fromAlignedEdges(allEdges3).mkAlignedGraph
     val dualG = createDualGraph(graph3)
+    getPathDirString(graph3,  NodeIndex(5), NodeIndex(7), AlignedEdge(NodeIndex(3), NodeIndex(5), Direction.South), false)
     println(dualG.vertices.zipWithIndex.map((v, i) => s"Knoten: ${i} hat Nachbarn: ${v.neighbors}\n"))
-    
+    val fixSeq = fix180Turns(Seq(Direction.South,  Direction.East, Direction.South, Direction.North, Direction.East), true);
+    val fixSeqCW = fix180Turns(Seq(Direction.West, Direction.South, Direction.North, Direction.West,Direction.North), false);
 
     val x = 0;
   end testMain
@@ -621,26 +628,135 @@ object GreedyOrthogonalization:
             for quadrant <- Seq(0, 1, 2, 3) do
               // todo: Pro quadrant immer die, die am nächsten zum ausgerichteten Quadranten liegt
               getUnalignedOfQuadrant(graph, n, quadrant, Option.empty, Option.empty, init)
-              alignedGraph = createEdgeInAligedGraph(alignedGraph, n, neighbor)
+              //alignedGraph =  //splitEdge //createEdgeInAligedGraph(alignedGraph, n, neighbor)
             end for
         end for
       end for
     end for
 
+    
 
     alignedGraph
   end greedyAlignedGraph
 
-  def createEdgeInAligedGraph(alignedGraph: AlignedGraph, n: NodeIndex, neighbor:NodeIndex):AlignedGraph = 
-    //get quadrand
+  /**
+    * fixes 180 turns for a given direction sequence
+    *
+    * @param edges
+    * @param cw
+    * @return
+    */
+  def fix180Turns(edges: Seq[Direction], cw: Boolean): Seq[Direction] = 
+    edges.appended(edges.last).sliding(2, 1).flatMap(l => 
+        if l(1) == l(0).reverse then 
+           Seq(l(0), 
+            cw match
+              case true => l(0).turnCW
+              case false => l(0).turnCCW
+            )
+        else Seq(l(0))
+      ).toSeq
+  end fix180Turns
 
-    //split edge and insert node
 
-    // insert node
+  def dirToChar(dir: Direction): String = dir match
+      case Direction.North => "N"
+      case Direction.East => "E"
+      case Direction.South => "S"
+      case Direction.West => "W"
 
-    // return new graph
-    alignedGraph
-  end createEdgeInAligedGraph
+  def charToDir(str: String): Direction = str match
+      case "N" => Direction.North
+      case "E" => Direction.East
+      case "S" => Direction.South
+      case "W" => Direction.West
+
+
+  /**
+    * returns the shortest path (directions as string literals) through a face with a given starting point and endpoint
+    *
+    * @param alignedGraph
+    * @param startNode
+    * @param endNode
+    * @param faceRep
+    * @param cw
+    * @return
+    */
+  def getPathDirString(alignedGraph: AlignedGraph, startNode: NodeIndex, endNode: NodeIndex, faceRep: AlignedEdge, cw: Boolean): String = 
+    //get first edge adjacent to startNode
+    val startingEdges = alignedGraph.traverseEdgesAlignedFace(faceRep, false, false).toSeq.dropWhile(l => l.from != startNode)
+    if startingEdges.isEmpty then sys.error("starting Edge was not found when traversing face!")
+    val startEdge = startingEdges.head
+    val faceEdges = Seq(startEdge)++alignedGraph.traverseEdgesAlignedFace(startEdge, false,false).toSeq
+    val pathCW = faceEdges.takeWhile(edge => edge.from != endNode)
+    val pathCCWReversed = faceEdges.dropWhile(edge => edge.from != endNode).takeWhile(edge => edge.from != startNode)
+    
+    //turn to directions
+    val dirCW = fix180Turns(pathCW.map(_.direction), true)
+    val dirCCW = fix180Turns(pathCCWReversed.map(_.direction), true).reverse.map(_.reverse)
+
+    // add extra edge to connect to existing node
+    val dirCWWithPrefix = Seq(dirCW.head.turnCW)++dirCW++Seq(dirCW.last.turnCCW)
+    val dirCCWWithPrefix = Seq(dirCCW.head.turnCCW)++dirCCW++Seq(dirCCW.last.turnCW)
+
+    //turn to string
+    var dirCWString: String = dirCWWithPrefix.map(dirToChar(_)).reduce(_+_)
+    var dirCCWString: String = dirCCWWithPrefix.map(dirToChar(_)).reduce(_+_)
+
+    //apply all simplfication rules
+    val replacements = Map(
+      "NWN" -> "NN",
+      "NEN" -> "NN",
+      "ENE" -> "EE",
+      "ESE" -> "EE",
+      "SWS" -> "SS",
+      "SES" -> "SS",
+      "WNW" -> "WW",
+      "NN" -> "N",
+      "EE" -> "E",
+      "SS" -> "S",
+      "WW" -> "W",
+    )
+
+    val pattern = replacements.keys
+      .map(java.util.regex.Pattern.quote)
+      .mkString("|")
+      .r
+
+    while pattern.findFirstIn(dirCWString).isDefined do
+      dirCWString = pattern.replaceAllIn(dirCWString, m => replacements(m.matched))
+    end while
+
+    while pattern.findFirstIn(dirCCWString).isDefined do
+      dirCCWString = pattern.replaceAllIn(dirCCWString, m => replacements(m.matched))
+    end while
+
+    return if dirCWString.length() < dirCCWString.length() then dirCWString else dirCCWString
+  end getPathDirString
+
+
+  /**
+    * returns some of an aligned edge, if both faces share an edge, none otherwiese
+    *
+    * @param graph
+    * @param faceA
+    * @param faceB
+    * @return
+    */
+  def getEdgeBetweenFaces(graph: AlignedGraph, faceA: Int, faceB: Int): Option[AlignedEdge] =
+    val faceReps = graph.getOneEdgePerFace();
+
+    // get map from edge to faces
+    val edgeToFaceMap = getMapEdgeToAdjacentFace(graph, faceReps)
+
+    val sharedEdge = edgeToFaceMap.filter(entry => entry._2.contains(faceA) && entry._2.contains(faceB))
+
+    if sharedEdge.isEmpty then None
+    else Some(sharedEdge.head._1)
+    
+
+  end getEdgeBetweenFaces
+
 
   /**
     * Creates a dual graph of a connected graph
@@ -649,8 +765,7 @@ object GreedyOrthogonalization:
     * @return
     */
   def createDualGraph(graph: AlignedGraph): BasicGraph = 
-    // TODO: Test this funktion
-    //TODO: Eventuell ist der BasicGraph nicht die beste Wahl
+    //TODO: Eventuell muss hier auch zusätzlich die faceReps zurückgegeben werden
     val faceReps = graph.getOneEdgePerFace();
 
     // get map from edge to faces
@@ -668,3 +783,5 @@ object GreedyOrthogonalization:
   end createDualGraph
 
 end GreedyOrthogonalization
+
+//case class Face(faceRep: AlignedEdge, edges: IndexedSeq[AlignedEdge])
