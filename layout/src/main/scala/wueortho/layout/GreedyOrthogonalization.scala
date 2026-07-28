@@ -22,7 +22,7 @@ import wueortho.data.BasicLink
 import scala.collection.AbstractIterator
 import scala.annotation.tailrec
 import wueortho.util.GraphSearch.bfs
-import javax.swing.plaf.basic.BasicGraphicsUtils
+import wueortho.layout.FlowNetworkEdgeLength.getMapEdgeToAdjacentFace
 extension (a: Vec2D)
   def dot(b: Vec2D): Double =
     a.x1 * b.x1 + a.x2 * b.x2
@@ -46,18 +46,40 @@ object GreedyOrthogonalization:
     //val b = alignAllNeighbors(graph, aGraph, pos, NodeIndex(0))
 
     //val allEdges2 = Seq((0, 1), (0, 3), (1, 2),(1, 11), (1, 9), (2, 3), (2, 4), (2, 6), (3, 4), (4, 5), (5, 6), (6, 7), (7,  8), (8, 10), (8, 9), (10, 11), (10, 12), (11, 12)).map(e => SimpleEdge(NodeIndex(e._1), NodeIndex(e._2)))
-    val allEdges2 = Seq((0, 1), (0, 3), (1, 11), (1, 9), (2, 3), (2, 4), (2, 6), (3, 4), (4, 5), (5, 6), (6, 7), (7,  8), (8, 10), (8, 9), (10, 11), (10, 12), (11, 13), (12, 13), (15, 16)).map(e => SimpleEdge(NodeIndex(e._1), NodeIndex(e._2)))
-    val posSeq2 = IndexedSeq(Vec2D(0, 0), Vec2D(0, 3), Vec2D(4, 3), Vec2D(4, 0), Vec2D(6, 2), Vec2D(7, 5), Vec2D(4, 6), Vec2D(2, 5), Vec2D(0, 6), Vec2D(-2, 5), Vec2D(0, 5), Vec2D(0, 4), Vec2D(1, 5), Vec2D(1, 4), Vec2D(1, 1), Vec2D(0.5, 2), Vec2D(3, 2))
-    val pos2 = VertexLayout(posSeq2)
-    val graph2 = Graph.fromEdges(allEdges2).mkBasicGraph
+    //val allEdges2 = Seq((0, 1), (0, 3), (1, 11), (1, 9), (2, 3), (2, 4), (2, 6), (3, 4), (4, 5), (5, 6), (6, 7), (7,  8), (8, 10), (8, 9), (10, 11), (10, 12), (11, 13), (12, 13), (15, 16)).map(e => SimpleEdge(NodeIndex(e._1), NodeIndex(e._2)))
+    //val posSeq2 = IndexedSeq(Vec2D(0, 0), Vec2D(0, 3), Vec2D(4, 3), Vec2D(4, 0), Vec2D(6, 2), Vec2D(7, 5), Vec2D(4, 6), Vec2D(2, 5), Vec2D(0, 6), Vec2D(-2, 5), Vec2D(0, 5), Vec2D(0, 4), Vec2D(1, 5), Vec2D(1, 4), Vec2D(1, 1), Vec2D(0.5, 2), Vec2D(3, 2))
+    //val pos2 = VertexLayout(posSeq2)
+    //val graph2 = Graph.fromEdges(allEdges2).mkBasicGraph
 
     //val c = allignAllUnalignedEdges(graph, aGraph,pos)
     //val d = IntersectionTools().intersect(allEdges2(0), allEdges2(1), pos2)
     //val e = traverseFace(graph2, pos2, SimpleEdge(NodeIndex(1), NodeIndex(2)), false).toSeq
     //val d = getAllRayIntersections(graph2, pos2, NodeIndex(14))
     //val f = getClosestIntersection(NodeIndex(14), pos2, d)
-    val g = testContainmentInFace(graph2, pos2, NodeIndex(14) )
+    //val g = testContainmentInFace(graph2, pos2, NodeIndex(14) )
     //val h = testOuterFace(graph2, SimpleEdge(NodeIndex(3), NodeIndex(0)), pos2)
+    val allEdges3 = Seq(AlignedEdge(NodeIndex(0),NodeIndex(1), Direction.West), 
+                        AlignedEdge(NodeIndex(0),NodeIndex(3), Direction.South),  
+                        AlignedEdge(NodeIndex(1),NodeIndex(4), Direction.South), 
+                        AlignedEdge(NodeIndex(4),NodeIndex(2), Direction.South), 
+                        AlignedEdge(NodeIndex(2),NodeIndex(3), Direction.West),
+                        AlignedEdge(NodeIndex(3),NodeIndex(5), Direction.South),
+                        AlignedEdge(NodeIndex(5),NodeIndex(6), Direction.South),
+                        AlignedEdge(NodeIndex(6),NodeIndex(7), Direction.East),
+                        AlignedEdge(NodeIndex(2),NodeIndex(7), Direction.South),
+                        AlignedEdge(NodeIndex(5),NodeIndex(8), Direction.East),
+                        AlignedEdge(NodeIndex(2),NodeIndex(9), Direction.East),
+                        AlignedEdge(NodeIndex(9),NodeIndex(10), Direction.South),
+                        AlignedEdge(NodeIndex(7),NodeIndex(10), Direction.East),
+                        AlignedEdge(NodeIndex(10),NodeIndex(11), Direction.South),
+                        AlignedEdge(NodeIndex(12),NodeIndex(11), Direction.East),
+                        AlignedEdge(NodeIndex(12),NodeIndex(13), Direction.North),
+                        AlignedEdge(NodeIndex(3),NodeIndex(13), Direction.West),
+                        )
+    val graph3 = AlignedGraph.fromAlignedEdges(allEdges3).mkAlignedGraph
+    val dualG = createDualGraph(graph3)
+    println(dualG.vertices.zipWithIndex.map((v, i) => s"Knoten: ${i} hat Nachbarn: ${v.neighbors}\n"))
+    
 
     val x = 0;
   end testMain
@@ -587,9 +609,62 @@ object GreedyOrthogonalization:
     val alignedPos = pos.finish
 
     // create alignedGraph
-    val alignedGraph = AlignedGraph.fromAlignedEdges(alingedEdges.toSeq).mkAlignedGraph
+    var alignedGraph = AlignedGraph.fromAlignedEdges(alingedEdges.toSeq).mkAlignedGraph
+    
+    // connect connected components, that are connected by unaligned edges
+    val gConnenctedComps = getConnectedComponents(graph)
+
+    for zsg <- gConnenctedComps do 
+      for n <- zsg do
+        for neighbor <- graph(n).neighbors.map(link => link.toNode) do 
+          if !alignedGraph(n).neighbors.map(link => link.toNode).contains(neighbor) then
+            for quadrant <- Seq(0, 1, 2, 3) do
+              // todo: Pro quadrant immer die, die am nächsten zum ausgerichteten Quadranten liegt
+              getUnalignedOfQuadrant(graph, n, quadrant, Option.empty, Option.empty, init)
+              alignedGraph = createEdgeInAligedGraph(alignedGraph, n, neighbor)
+            end for
+        end for
+      end for
+    end for
+
 
     alignedGraph
   end greedyAlignedGraph
+
+  def createEdgeInAligedGraph(alignedGraph: AlignedGraph, n: NodeIndex, neighbor:NodeIndex):AlignedGraph = 
+    //get quadrand
+
+    //split edge and insert node
+
+    // insert node
+
+    // return new graph
+    alignedGraph
+  end createEdgeInAligedGraph
+
+  /**
+    * Creates a dual graph of a connected graph
+    *
+    * @param graph
+    * @return
+    */
+  def createDualGraph(graph: AlignedGraph): BasicGraph = 
+    // TODO: Test this funktion
+    //TODO: Eventuell ist der BasicGraph nicht die beste Wahl
+    val faceReps = graph.getOneEdgePerFace();
+
+    // get map from edge to faces
+    val edgeToFaceMap = getMapEdgeToAdjacentFace(graph, faceReps)
+
+    val dualGraphEdges = edgeToFaceMap.flatMap((_, adjFacesIndices) =>
+      if adjFacesIndices.size == 0 then Seq()
+      else if adjFacesIndices.size == 1 then Seq()//no self edges //Seq(SimpleEdge(NodeIndex(adjFacesIndices.head), NodeIndex(adjFacesIndices.head)))
+      else Seq(SimpleEdge(NodeIndex(adjFacesIndices.head), NodeIndex(adjFacesIndices.tail.head)))
+    ).toSeq
+      .distinct
+      .filter(e => e.to != e.from)
+
+    Graph.fromEdges(dualGraphEdges).mkBasicGraph
+  end createDualGraph
 
 end GreedyOrthogonalization

@@ -195,7 +195,7 @@ object FlowNetworkEdgeLength:
 
     var nodePositions = graphWithEdgeLength.getPositions();
 
-    val allComponents = getConnectedComponents(graph).toIndexedSeq
+    val allComponents = getConnectedComponents(Graph.fromEdges(graph.edges.map(_.unalign)).mkBasicGraph).toIndexedSeq
 
     val boundingBoxes = allComponents.map(comp => getConnectedComponentBoundingBox(comp.toSeq, nodePositions))
 

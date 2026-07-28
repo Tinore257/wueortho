@@ -373,7 +373,8 @@ private case class AGImpl[Graph](
   end getAllFaces
 
   def getOneEdgePerFace(): mutable.IndexedBuffer[AlignedEdge] =
-    getAllFaces().flatMap(f => if (f.size > 0) then f.sortBy(l => l.from.toInt min l.to.toInt).take(1) else Seq.empty)
+    //getAllFaces().flatMap(f => if (f.size > 0) then f.sortBy(l => l.from.toInt min l.to.toInt).take(1) else Seq.empty)
+    getAllFaces().flatMap(f => if (f.size > 0) then f.sortBy(l => l.from.toInt).take(1) else Seq.empty)
   end getOneEdgePerFace
 
   // eventuell zusätzlich die Facette mitgeben, damit sichergestellt werden kann, das entlang der richtgen Facette traversiert wird

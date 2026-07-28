@@ -31,7 +31,7 @@ object AlignedGraphDissection:
       IndexedBuffer.empty
     var faceEdgeCandidate                                                                                            = graph.getOneEdgePerFace()
     var allEdges                                                                                                     = graph.edges.toSet
-    val connectedComponents                                                                                          = getConnectedComponents(graph)
+    val connectedComponents                                                                                          = getConnectedComponents(Graph.fromEdges(graph.edges.map(_.unalign)).mkBasicGraph)
     // TODO: add support for multiple connected components!
     val bb                                                                                                           = addBoundingBox(allEdges.toSeq, connectedComponents.size)
     allEdges.++=(bb)
@@ -54,7 +54,7 @@ object AlignedGraphDissection:
         val nodeToOuterFace      = getBottomRightCorner(compactedGraph, outerFaceIter)
         val edgeToBB             = AlignedEdge(nodeToOuterFace, bb(connectedComponentsCounter).to, Direction.South)
         dockEdgesWithNode
-          .+=((getConnectedComponent(graph, nodeToOuterFace), bb(connectedComponentsCounter), nodeToOuterFace))
+          .+=((getConnectedComponent(Graph.fromEdges(graph.edges.map(_.unalign)).mkBasicGraph, nodeToOuterFace), bb(connectedComponentsCounter), nodeToOuterFace))
         connectedComponentsCounter = connectedComponentsCounter + 1;
         allEdges.+=(edgeToBB)
         val graphWithConnectedBB = AlignedGraph.fromAlignedEdges(allEdges.toSeq).mkAlignedGraph
@@ -75,12 +75,12 @@ object AlignedGraphDissection:
     AlignedGraph.fromAlignedEdges(allEdges.toSeq).mkAlignedGraph
   end rectangularDissection
 
-  def getConnectedComponent(graph: AlignedGraph, startNode: NodeIndex): Set[NodeIndex] =
+  def getConnectedComponent(graph: BasicGraph, startNode: NodeIndex): Set[NodeIndex] =
     val adj = (v: NodeIndex) => graph.vertices(v.toInt).neighbors.map(_.toNode)
     bfs.traverse(adj, startNode).toSet
   end getConnectedComponent
 
-  def getConnectedComponents(graph: AlignedGraph): Set[Set[NodeIndex]] =
+  def getConnectedComponents(graph: BasicGraph): Set[Set[NodeIndex]] =
     var uncheckedNodes                             = Range(0, graph.vertices.length).map(NodeIndex(_)).toSet
     val allComponents: mutable.Set[Set[NodeIndex]] = mutable.Set.empty
     while !uncheckedNodes.isEmpty do
