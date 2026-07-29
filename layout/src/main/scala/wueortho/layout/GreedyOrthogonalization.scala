@@ -24,6 +24,11 @@ import scala.annotation.tailrec
 import wueortho.util.GraphSearch.bfs
 import wueortho.layout.FlowNetworkEdgeLength.getMapEdgeToAdjacentFace
 import wueortho.routing.OrthogonalVisibilityGraph.edgeOfWorld
+import scala.collection.mutable.IndexedBuffer
+import wueortho.util.GraphSearch
+import wueortho.util.GraphSearch.dijkstra
+import wueortho.util.GraphSearch.Dijkstra
+import wueortho.routing.OrthogonalVisibilityGraph.neighbor
 extension (a: Vec2D)
   def dot(b: Vec2D): Double =
     a.x1 * b.x1 + a.x2 * b.x2
@@ -639,6 +644,87 @@ object GreedyOrthogonalization:
     alignedGraph
   end greedyAlignedGraph
 
+  def splitAlignedEdge(alignedGraph: AlignedGraph, edgeToSplit: AlignedEdge, newId: NodeIndex): AlignedGraph =
+    val edgesWithoutSplitEdge = alignedGraph.edges.filter(e => !(e.from == edgeToSplit.from && e.to == edgeToSplit.to) && 
+                                                !(e.to == edgeToSplit.from && e.from == edgeToSplit.to))
+    val newEdges = edgesWithoutSplitEdge++Seq(AlignedEdge(edgeToSplit.from, newId, edgeToSplit.direction),
+                                               AlignedEdge(newId, edgeToSplit.to, edgeToSplit.direction))
+    AlignedGraph.fromAlignedEdges(newEdges).mkAlignedGraph
+  end splitAlignedEdge 
+
+
+  def routeUnalignedEdge(alignedGraph: AlignedGraph, graph: BasicGraph, unaligendEdge: SimpleEdge, pos: VertexLayout, newNodeId: Int): AlignedGraph =
+    // bestimmte dualGraph 
+    val (faceReps, dualG) = createDualGraph(alignedGraph)
+
+    // TODO: finde facette, in der die Kante Starten, finde facette, in der die Kante endet
+    val startFaceEdge = findRadialNextAlignedEdge(alignedGraph, graph, unaligendEdge, pos)
+    val startFace = alignedGraph.traverseEdgesAlignedFace(startFaceEdge, false, false).toSeq.filter(faceReps.contains(_)).head
+    val startFaceIndex = faceReps.indexOf(startFace)
+    val endFaceEdge = findRadialNextAlignedEdge(alignedGraph, graph, getReverseEdge(unaligendEdge), pos)
+    val endFace = alignedGraph.traverseEdgesAlignedFace(endFaceEdge, false, false).toSeq.filter(faceReps.contains(_)).head
+    val endFaceIndex = faceReps.indexOf(endFace)
+
+    // TODO: finde kürzesten Weg durch dualgraph
+    val dijkstra = new Dijkstra[Int, Int]
+    val shortestPath = dijkstra.shortestPath((x:NodeIndex) => dualG.vertices(x.toInt).neighbors.map(l => (l.toNode, 1)) , NodeIndex(startFaceIndex), NodeIndex(endFaceIndex), 0) 
+    val nodesInPath = shortestPath match
+      case Left(value) => sys.error("Error while calculating dijkstra on dual graph!") 
+      case Right(path) => path.nodes
+    
+    // TODO: finde alle Kanten zwischen den Facetten, auf dem kürzesten Weg
+    val edgesToSpit = nodesInPath.sliding(2).map(l => getEdgeBetweenFaces(alignedGraph,l(0).toInt, l(1).toInt)).flatMap(x => x match
+      case Some(value) => Seq(value)
+      case None => Seq()
+    )
+
+    //case class ThroughFacePath(faceRep: AlignedEdge, FaceIndex: Int, startNode: NodeIndex, endNode: NodeIndex)
+    // TODO: splitte diese Kanten zwischen den Facetten
+    var newAlignedGraph = alignedGraph
+    var newId = newNodeId
+    var newPathNodesWithFace = Seq(unaligendEdge.from)
+    for (edge, faceId) <- edgesToSpit.zip(nodesInPath) do
+      newAlignedGraph = splitAlignedEdge(alignedGraph, edge, NodeIndex(newId))
+      newPathNodesWithFace = newPathNodesWithFace.appended(NodeIndex(newId))
+      newId = newId + 1
+    end for
+    newPathNodesWithFace = newPathNodesWithFace.appended(unaligendEdge.to) 
+
+    // TODO TODDO TODO: Es muss durch die Knoten, die geschnitten werden iteriert werden und durch die facetten !!!
+    // TODO TODDO TODO: Es muss durch die Knoten, die geschnitten werden iteriert werden und durch die facetten !!!
+    // TODO TODDO TODO: Es muss durch die Knoten, die geschnitten werden iteriert werden und durch die facetten !!!
+    // TODO TODDO TODO: Es muss durch die Knoten, die geschnitten werden iteriert werden und durch die facetten !!!
+    // TODO: verwende getPathDirString pro Facette, um die Knicke zu bestimmen
+    for (nodes, faceId) <- newPathNodesWithFace.sliding(2).zip(nodesInPath) do
+      val startNode = nodes.head
+      val endNode = nodes.last // should be element 1
+      val faceRep = faceRep(faceId.toInt)
+      val pathString = getPathDirString(newAlignedGraph,startNode, endNode, faceRep, false)
+    end for
+    //TODO: create function that creates a path from Directions
+
+    // TODO: Füge diese Kanten zum Graph hinzu??
+
+    alignedGraph // TODO: replace
+
+  end routeUnalignedEdge
+
+  /**
+    * Given a unaligned edge it finds the next aligned edge in ordinal ordering to find the face, the edge is inside
+    *
+    * @param alignedGraph
+    * @param graph
+    * @param unaligendEdge
+    * @param pos
+    * @return
+    */
+  def findRadialNextAlignedEdge(alignedGraph: AlignedGraph, graph: BasicGraph, unaligendEdge: SimpleEdge, pos: VertexLayout): AlignedEdge =
+    val orderdNeighbors = getRadialOrderingNeighbors(unaligendEdge.from, graph.vertices(unaligendEdge.from.toInt).neighbors.map(l => SimpleEdge(unaligendEdge.from, l.toNode)), pos, true);
+    val listWithEdgeOnHead = orderdNeighbors.dropWhile(e => !alignedGraph.vertices(unaligendEdge.from.toInt).neighbors.contains(e._1.to))
+    if listWithEdgeOnHead.isEmpty then sys.error("no alignedEdge found!")
+    alignedGraph.edges.filter(e => e.from  == listWithEdgeOnHead.head._1.from && e.to == listWithEdgeOnHead.head._1.to).head
+  end findRadialNextAlignedEdge
+
   /**
     * fixes 180 turns for a given direction sequence
     *
@@ -764,7 +850,7 @@ object GreedyOrthogonalization:
     * @param graph
     * @return
     */
-  def createDualGraph(graph: AlignedGraph): BasicGraph = 
+  def createDualGraph(graph: AlignedGraph): (IndexedBuffer[AlignedEdge], BasicGraph) = 
     //TODO: Eventuell muss hier auch zusätzlich die faceReps zurückgegeben werden
     val faceReps = graph.getOneEdgePerFace();
 
@@ -779,7 +865,7 @@ object GreedyOrthogonalization:
       .distinct
       .filter(e => e.to != e.from)
 
-    Graph.fromEdges(dualGraphEdges).mkBasicGraph
+    (faceReps, Graph.fromEdges(dualGraphEdges).mkBasicGraph)
   end createDualGraph
 
 end GreedyOrthogonalization
