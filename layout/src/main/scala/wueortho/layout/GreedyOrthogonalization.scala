@@ -699,7 +699,7 @@ object GreedyOrthogonalization:
       val startNode = nodes.head
       val endNode = nodes.last // should be element 1
       val faceRep = faceRep(faceId.toInt)
-      val pathString = getPathDirString(newAlignedGraph,startNode, endNode, faceRep, false)
+      val pathString = getPathDirString(newAlignedGraph,startNode, endNode, faceRep, false).map(charToDir(_))
     end for
     //TODO: create function that creates a path from Directions
 
@@ -708,6 +708,23 @@ object GreedyOrthogonalization:
     alignedGraph // TODO: replace
 
   end routeUnalignedEdge
+
+  /**
+    * creates a sequence of alignedEdge starting at startNode, ending at endNode with given directions 
+    * and using ids starting with newNodeId for new nodes 
+    *
+    * @param dirSeq
+    * @param startNode
+    * @param endNode
+    * @param newNodeId
+    * @return
+    */
+  def dirSeqToAlignedEdgeSeq(dirSeq: Seq[Direction], startNode: NodeIndex, endNode: NodeIndex, newNodeId: Int): Seq[AlignedEdge] = 
+    val nodeIds = Seq(startNode)++(Range(newNodeId, dirSeq.length).map(NodeIndex(_))).appended(endNode)
+    nodeIds.sliding(2).zip(dirSeq).map((l, dir) => AlignedEdge(l(0), l(1), dir)).toSeq
+  end dirSeqToAlignedEdgeSeq
+
+
 
   /**
     * Given a unaligned edge it finds the next aligned edge in ordinal ordering to find the face, the edge is inside
@@ -751,11 +768,11 @@ object GreedyOrthogonalization:
       case Direction.South => "S"
       case Direction.West => "W"
 
-  def charToDir(str: String): Direction = str match
-      case "N" => Direction.North
-      case "E" => Direction.East
-      case "S" => Direction.South
-      case "W" => Direction.West
+  def charToDir(str: Char): Direction = str match
+      case 'N' => Direction.North
+      case 'E' => Direction.East
+      case 'S' => Direction.South
+      case 'W' => Direction.West
 
 
   /**
