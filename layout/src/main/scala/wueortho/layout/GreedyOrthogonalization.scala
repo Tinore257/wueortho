@@ -652,7 +652,16 @@ object GreedyOrthogonalization:
     AlignedGraph.fromAlignedEdges(newEdges).mkAlignedGraph
   end splitAlignedEdge 
 
-
+  /**
+    * routes one unaligned Edge as a path throught the graph
+    *
+    * @param alignedGraph
+    * @param graph
+    * @param unaligendEdge
+    * @param pos
+    * @param newNodeId
+    * @return
+    */
   def routeUnalignedEdge(alignedGraph: AlignedGraph, graph: BasicGraph, unaligendEdge: SimpleEdge, pos: VertexLayout, newNodeId: Int): AlignedGraph =
     // bestimmte dualGraph 
     val (faceReps, dualG) = createDualGraph(alignedGraph)
@@ -695,17 +704,21 @@ object GreedyOrthogonalization:
     // TODO TODDO TODO: Es muss durch die Knoten, die geschnitten werden iteriert werden und durch die facetten !!!
     // TODO TODDO TODO: Es muss durch die Knoten, die geschnitten werden iteriert werden und durch die facetten !!!
     // TODO: verwende getPathDirString pro Facette, um die Knicke zu bestimmen
+    var allNewEdges: Seq[AlignedEdge] = Seq()
     for (nodes, faceId) <- newPathNodesWithFace.sliding(2).zip(nodesInPath) do
       val startNode = nodes.head
       val endNode = nodes.last // should be element 1
       val faceRep = faceRep(faceId.toInt)
       val pathString = getPathDirString(newAlignedGraph,startNode, endNode, faceRep, false).map(charToDir(_))
+      // creates a path from Directions
+      val newEdges = dirSeqToAlignedEdgeSeq(pathString, startNode, endNode, newId)
+      newId = newId + (newEdges.length - 1 max 0) 
+      allNewEdges = allNewEdges++(newEdges)
     end for
-    //TODO: create function that creates a path from Directions
 
-    // TODO: Füge diese Kanten zum Graph hinzu??
-
-    alignedGraph // TODO: replace
+    
+    //Füge diese Kanten zum Graph hinzu??
+    AlignedGraph.fromAlignedEdges(newAlignedGraph.edges++(allNewEdges)).mkAlignedGraph
 
   end routeUnalignedEdge
 
@@ -723,7 +736,6 @@ object GreedyOrthogonalization:
     val nodeIds = Seq(startNode)++(Range(newNodeId, dirSeq.length).map(NodeIndex(_))).appended(endNode)
     nodeIds.sliding(2).zip(dirSeq).map((l, dir) => AlignedEdge(l(0), l(1), dir)).toSeq
   end dirSeqToAlignedEdgeSeq
-
 
 
   /**
