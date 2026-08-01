@@ -29,6 +29,8 @@ import wueortho.util.GraphSearch
 import wueortho.util.GraphSearch.dijkstra
 import wueortho.util.GraphSearch.Dijkstra
 import wueortho.routing.OrthogonalVisibilityGraph.neighbor
+import org.jgrapht.graph.SimpleGraph
+import wueortho.util.GraphSearch.DijkstraCost
 extension (a: Vec2D)
   def dot(b: Vec2D): Double =
     a.x1 * b.x1 + a.x2 * b.x2
@@ -64,7 +66,7 @@ object GreedyOrthogonalization:
     //val f = getClosestIntersection(NodeIndex(14), pos2, d)
     //val g = testContainmentInFace(graph2, pos2, NodeIndex(14) )
     //val h = testOuterFace(graph2, SimpleEdge(NodeIndex(3), NodeIndex(0)), pos2)
-    val allEdges3 = Seq(AlignedEdge(NodeIndex(0),NodeIndex(1), Direction.West), 
+    val allEdges3 = Seq(AlignedEdge(NodeIndex(0),NodeIndex(1), Direction.East), 
                         AlignedEdge(NodeIndex(0),NodeIndex(3), Direction.South),  
                         AlignedEdge(NodeIndex(1),NodeIndex(4), Direction.South), 
                         AlignedEdge(NodeIndex(4),NodeIndex(2), Direction.South), 
@@ -86,12 +88,34 @@ object GreedyOrthogonalization:
                         AlignedEdge(NodeIndex(15),NodeIndex(16), Direction.East),
                         AlignedEdge(NodeIndex(17),NodeIndex(16), Direction.North),
                         )
+    val vPosGraph3 = VertexLayout(IndexedSeq(
+        Vec2D(4, 1),
+        Vec2D(8, 1),
+        Vec2D(8, 4),
+        Vec2D(4, 4),
+        Vec2D(8, 3),
+        Vec2D(4, 6),
+        Vec2D(4, 8),
+        Vec2D(8, 8),
+        Vec2D(6, 6),
+        Vec2D(12, 4),
+        Vec2D(12, 8),
+        Vec2D(12, 12),//11
+        Vec2D(1, 12),
+        Vec2D(1, 4),
+        Vec2D(12, 5),
+        Vec2D(10, 5),
+        Vec2D(10, 7),
+        Vec2D(12, 7),
+      ))
     val graph3 = AlignedGraph.fromAlignedEdges(allEdges3).mkAlignedGraph
-    val dualG = createDualGraph(graph3)
-    getPathDirString(graph3,  NodeIndex(5), NodeIndex(7), AlignedEdge(NodeIndex(3), NodeIndex(5), Direction.South), false)
-    println(dualG.vertices.zipWithIndex.map((v, i) => s"Knoten: ${i} hat Nachbarn: ${v.neighbors}\n"))
-    val fixSeq = fix180Turns(Seq(Direction.South,  Direction.East, Direction.South, Direction.North, Direction.East), true);
-    val fixSeqCW = fix180Turns(Seq(Direction.West, Direction.South, Direction.North, Direction.West,Direction.North), false);
+    val (_, dualG) = createDualGraph(graph3)
+    //getPathDirString(graph3,  NodeIndex(5), NodeIndex(7), AlignedEdge(NodeIndex(3), NodeIndex(5), Direction.South), false)
+    //println(dualG.vertices.zipWithIndex.map((v, i) => s"Knoten: ${i} hat Nachbarn: ${v.neighbors}\n"))
+    //val fixSeq = fix180Turns(Seq(Direction.South,  Direction.East, Direction.South, Direction.North, Direction.East), true);
+    //val fixSeqCW = fix180Turns(Seq(Direction.West, Direction.South, Direction.North, Direction.West,Direction.North), false);
+    val graph3G = Graph.fromEdges(graph3.edges.map(_.unalign)).mkBasicGraph
+    val newG = routeUnalignedEdge(graph3, graph3G, SimpleEdge(NodeIndex(12),NodeIndex(17)),vPosGraph3, graph3G.vertices.length)
 
     val x = 0;
   end testMain
@@ -623,23 +647,10 @@ object GreedyOrthogonalization:
     // create alignedGraph
     var alignedGraph = AlignedGraph.fromAlignedEdges(alingedEdges.toSeq).mkAlignedGraph
     
-    // connect connected components, that are connected by unaligned edges
-    val gConnenctedComps = getConnectedComponents(graph)
 
-    for zsg <- gConnenctedComps do 
-      for n <- zsg do
-        for neighbor <- graph(n).neighbors.map(link => link.toNode) do 
-          if !alignedGraph(n).neighbors.map(link => link.toNode).contains(neighbor) then
-            for quadrant <- Seq(0, 1, 2, 3) do
-              // todo: Pro quadrant immer die, die am nächsten zum ausgerichteten Quadranten liegt
-              getUnalignedOfQuadrant(graph, n, quadrant, Option.empty, Option.empty, init)
-              //alignedGraph =  //splitEdge //createEdgeInAligedGraph(alignedGraph, n, neighbor)
-            end for
-        end for
-      end for
-    end for
+    connectAllUnalignedComponents(alignedGraph, graph, init)
 
-    
+    // TODO: route all paths
 
     alignedGraph
   end greedyAlignedGraph
@@ -652,6 +663,10 @@ object GreedyOrthogonalization:
     AlignedGraph.fromAlignedEdges(newEdges).mkAlignedGraph
   end splitAlignedEdge 
 
+  def getReverseEdge(e: AlignedEdge): AlignedEdge =
+    AlignedEdge(e.to, e.from, e.direction.reverse)
+  end getReverseEdge
+
   /**
     * routes one unaligned Edge as a path throught the graph
     *
@@ -663,52 +678,78 @@ object GreedyOrthogonalization:
     * @return
     */
   def routeUnalignedEdge(alignedGraph: AlignedGraph, graph: BasicGraph, unaligendEdge: SimpleEdge, pos: VertexLayout, newNodeId: Int): AlignedGraph =
-    // bestimmte dualGraph 
-    val (faceReps, dualG) = createDualGraph(alignedGraph)
+    // wenn die Kante gesplittet wird, wird einen neuen start-/Endknoten verwendet
+    var startNode = unaligendEdge.from
+    var endNode = unaligendEdge.to
+    var newId = newNodeId;
+    
+    var newAlignedGraph = alignedGraph
+    val (newG, startFaceEdge, newId1) = findRadialNextAlignedEdgeOrSplitEdge(newAlignedGraph, unaligendEdge, pos, newId)
+    if newG.vertices.length > newAlignedGraph.vertices.length then startNode = NodeIndex(newG.vertices.length - 1)
+    newAlignedGraph = newG
+    newId = newId1
+    val (newG2, endFaceEdge, newId2) = findRadialNextAlignedEdgeOrSplitEdge(newAlignedGraph, getReverseEdge(unaligendEdge), pos, newId) 
+      //findRadialNextAlignedEdge(alignedGraph, graph, getReverseEdge(unaligendEdge), pos)
+    if newG2.vertices.length > newAlignedGraph.vertices.length then endNode = NodeIndex(newG2.vertices.length - 1)
+    newAlignedGraph = newG2
+    newId = newId2
 
-    // TODO: finde facette, in der die Kante Starten, finde facette, in der die Kante endet
-    val startFaceEdge = findRadialNextAlignedEdge(alignedGraph, graph, unaligendEdge, pos)
-    val startFace = alignedGraph.traverseEdgesAlignedFace(startFaceEdge, false, false).toSeq.filter(faceReps.contains(_)).head
+    // bestimmte dualGraph 
+    val (faceReps, dualG) = createDualGraph(newAlignedGraph)
+
+
+    var startFace = newAlignedGraph.traverseEdgesAlignedFace(startFaceEdge, false, false).toSeq.filter(faceReps.contains(_)).head
     val startFaceIndex = faceReps.indexOf(startFace)
-    val endFaceEdge = findRadialNextAlignedEdge(alignedGraph, graph, getReverseEdge(unaligendEdge), pos)
-    val endFace = alignedGraph.traverseEdgesAlignedFace(endFaceEdge, false, false).toSeq.filter(faceReps.contains(_)).head
+    var endFace = newAlignedGraph.traverseEdgesAlignedFace(endFaceEdge, false, false).toSeq.filter(faceReps.contains(_)).head
     val endFaceIndex = faceReps.indexOf(endFace)
 
+
+
     // TODO: finde kürzesten Weg durch dualgraph
-    val dijkstra = new Dijkstra[Int, Int]
-    val shortestPath = dijkstra.shortestPath((x:NodeIndex) => dualG.vertices(x.toInt).neighbors.map(l => (l.toNode, 1)) , NodeIndex(startFaceIndex), NodeIndex(endFaceIndex), 0) 
-    val nodesInPath = shortestPath match
+    // TODO: Es sollte für alle möglichen Facetten, die an dem Knoten angrenzend sind geschaut
+    //       werden, welche zu dem kürzesten Pfad führt und diese dann wählen
+    given DijkstraCost[Int, Int] = (a, b) => a + b
+    val dij = dijkstra[Int, Int]
+    val shortestPath = dij.shortestPath((x:NodeIndex) => dualG.vertices(x.toInt).neighbors.map(l => (l.toNode, 1)) , NodeIndex(startFaceIndex), NodeIndex(endFaceIndex), 0) 
+    val facesInPath = shortestPath match
       case Left(value) => sys.error("Error while calculating dijkstra on dual graph!") 
       case Right(path) => path.nodes
     
-    // TODO: finde alle Kanten zwischen den Facetten, auf dem kürzesten Weg
-    val edgesToSpit = nodesInPath.sliding(2).map(l => getEdgeBetweenFaces(alignedGraph,l(0).toInt, l(1).toInt)).flatMap(x => x match
-      case Some(value) => Seq(value)
-      case None => Seq()
-    )
-
-    //case class ThroughFacePath(faceRep: AlignedEdge, FaceIndex: Int, startNode: NodeIndex, endNode: NodeIndex)
-    // TODO: splitte diese Kanten zwischen den Facetten
-    var newAlignedGraph = alignedGraph
-    var newId = newNodeId
-    var newPathNodesWithFace = Seq(unaligendEdge.from)
-    for (edge, faceId) <- edgesToSpit.zip(nodesInPath) do
-      newAlignedGraph = splitAlignedEdge(alignedGraph, edge, NodeIndex(newId))
+    var edgesToSpit:Seq[AlignedEdge] = Seq()
+    if facesInPath.size > 1 then
+      // TODO: finde alle Kanten zwischen den Facetten, auf dem kürzesten Weg
+      edgesToSpit = facesInPath.sliding(2).map(l => getEdgeBetweenFaces(newAlignedGraph,l(0).toInt, l(1).toInt)).flatMap(x => x match
+        case Some(value) => Seq(value)
+        case None => Seq()
+      ).toSeq
+      
+    // splitte diese Kanten zwischen den Facetten
+    var newPathNodesWithFace = Seq(startNode)
+    for edge <- edgesToSpit do
+      newAlignedGraph = splitAlignedEdge(newAlignedGraph, edge, NodeIndex(newId))
+      // update start- or endEdge, if it was just split
+      if edge == startFace then 
+        startFace = newAlignedGraph.edges.filter(e => e.from == startFace.from && e.to == NodeIndex(newId)).head
+      if getReverseEdge(edge) == startFace then
+        startFace = newAlignedGraph.edges.map(getReverseEdge(_)).filter(e => e.from == startFace.from && e.to == NodeIndex(newId)).head
+      if edge == endFace then 
+        endFace = newAlignedGraph.edges.filter(e => e.from == endFace.from && e.to == NodeIndex(newId)).head
+      if getReverseEdge(edge) == endFace then
+        endFace = newAlignedGraph.edges.map(getReverseEdge(_)).filter(e => e.from == endFace.from && e.to == NodeIndex(newId)).head
+      
       newPathNodesWithFace = newPathNodesWithFace.appended(NodeIndex(newId))
       newId = newId + 1
     end for
-    newPathNodesWithFace = newPathNodesWithFace.appended(unaligendEdge.to) 
+    newPathNodesWithFace = newPathNodesWithFace.appended(endNode) 
 
-    // TODO TODDO TODO: Es muss durch die Knoten, die geschnitten werden iteriert werden und durch die facetten !!!
-    // TODO TODDO TODO: Es muss durch die Knoten, die geschnitten werden iteriert werden und durch die facetten !!!
-    // TODO TODDO TODO: Es muss durch die Knoten, die geschnitten werden iteriert werden und durch die facetten !!!
-    // TODO TODDO TODO: Es muss durch die Knoten, die geschnitten werden iteriert werden und durch die facetten !!!
-    // TODO: verwende getPathDirString pro Facette, um die Knicke zu bestimmen
+    // Es muss durch die Knoten, die geschnitten werden iteriert werden und durch die facetten !!!
+    // verwende getPathDirString pro Facette, um die Knicke zu bestimmen
     var allNewEdges: Seq[AlignedEdge] = Seq()
-    for (nodes, faceId) <- newPathNodesWithFace.sliding(2).zip(nodesInPath) do
+    for (nodes, faceId) <- newPathNodesWithFace.sliding(2).zip(facesInPath) do
       val startNode = nodes.head
       val endNode = nodes.last // should be element 1
-      val faceRep = faceRep(faceId.toInt)
+      if startNode == endNode then sys.error("start and endnode are equal, can not route between those nodes!")
+      val faceRep = faceReps(faceId.toInt)
       val pathString = getPathDirString(newAlignedGraph,startNode, endNode, faceRep, false).map(charToDir(_))
       // creates a path from Directions
       val newEdges = dirSeqToAlignedEdgeSeq(pathString, startNode, endNode, newId)
@@ -738,6 +779,20 @@ object GreedyOrthogonalization:
   end dirSeqToAlignedEdgeSeq
 
 
+  def getOutgoingEdgeInSameFace(alignedGraph: AlignedGraph, node: NodeIndex, dir: Direction): AlignedEdge = 
+    var curDir = dir
+    if !alignedGraph.vertices(node.toInt).neighbors.filter(_.direction == curDir.turnCCW).isEmpty then return alignedGraph.vertices(node.toInt).neighbors.filter(_.direction == curDir.turnCCW).map(l => AlignedEdge(node, l.toNode, l.direction)).head
+    curDir = curDir.turnCCW
+    if !alignedGraph.vertices(node.toInt).neighbors.filter(_.direction == curDir.turnCCW).isEmpty then return alignedGraph.vertices(node.toInt).neighbors.filter(_.direction == curDir.turnCCW).map(l => AlignedEdge(node, l.toNode, l.direction)).head
+    curDir = curDir.turnCCW
+    if !alignedGraph.vertices(node.toInt).neighbors.filter(_.direction == curDir.turnCCW).isEmpty then return alignedGraph.vertices(node.toInt).neighbors.filter(_.direction == curDir.turnCCW).map(l => AlignedEdge(node, l.toNode, l.direction)).head
+    curDir = curDir.turnCCW
+    if !alignedGraph.vertices(node.toInt).neighbors.filter(_.direction == curDir.turnCCW).isEmpty then return alignedGraph.vertices(node.toInt).neighbors.filter(_.direction == curDir.turnCCW).map(l => AlignedEdge(node, l.toNode, l.direction)).head
+    curDir = curDir.turnCCW
+    sys.error("the node has no aligned edges, thus is not connected")
+    alignedGraph.vertices(node.toInt).neighbors.map(l => AlignedEdge(node, l.toNode, l.direction)).head
+  end getOutgoingEdgeInSameFace
+
   /**
     * Given a unaligned edge it finds the next aligned edge in ordinal ordering to find the face, the edge is inside
     *
@@ -747,12 +802,23 @@ object GreedyOrthogonalization:
     * @param pos
     * @return
     */
-  def findRadialNextAlignedEdge(alignedGraph: AlignedGraph, graph: BasicGraph, unaligendEdge: SimpleEdge, pos: VertexLayout): AlignedEdge =
-    val orderdNeighbors = getRadialOrderingNeighbors(unaligendEdge.from, graph.vertices(unaligendEdge.from.toInt).neighbors.map(l => SimpleEdge(unaligendEdge.from, l.toNode)), pos, true);
-    val listWithEdgeOnHead = orderdNeighbors.dropWhile(e => !alignedGraph.vertices(unaligendEdge.from.toInt).neighbors.contains(e._1.to))
-    if listWithEdgeOnHead.isEmpty then sys.error("no alignedEdge found!")
-    alignedGraph.edges.filter(e => e.from  == listWithEdgeOnHead.head._1.from && e.to == listWithEdgeOnHead.head._1.to).head
-  end findRadialNextAlignedEdge
+  def findRadialNextAlignedEdgeOrSplitEdge(alignedGraph: AlignedGraph, unaligendEdge: SimpleEdge, pos: VertexLayout, newNodeId: Int): (AlignedGraph, AlignedEdge, Int) =
+    //val orderdNeighbors = getRadialOrderingNeighbors(unaligendEdge.from, graph.vertices(unaligendEdge.from.toInt).neighbors.map(l => SimpleEdge(unaligendEdge.from, l.toNode)), pos, true);
+    //val listWithEdgeOnHead = orderdNeighbors.dropWhile(e => !alignedGraph.vertices(unaligendEdge.from.toInt).neighbors.contains(e._1.to))
+    //if listWithEdgeOnHead.isEmpty then sys.error("no alignedEdge found!")
+    //alignedGraph.edges.filter(e => e.from  == listWithEdgeOnHead.head._1.from && e.to == listWithEdgeOnHead.head._1.to).head
+    val usedDir = alignedGraph.vertices(unaligendEdge.from.toInt).neighbors.map(_.direction)
+    val freeDir = Set(Direction.North, Direction.East, Direction.South, Direction.West)--(usedDir).toSeq
+    if !freeDir.isEmpty then
+      val selectedDir = freeDir.head // the direction, the unaligned face will go to
+      val nextAligendEdge = getOutgoingEdgeInSameFace(alignedGraph, unaligendEdge.from, selectedDir)
+      (alignedGraph, nextAligendEdge, newNodeId)
+    else 
+      // TODO split edge
+      val edgeToSplit = alignedGraph.vertices(unaligendEdge.from.toInt).neighbors.map(l => AlignedEdge(unaligendEdge.from, l.toNode, l.direction)).head
+      val newGraph = splitAlignedEdge(alignedGraph, edgeToSplit, NodeIndex(newNodeId))
+      (newGraph, AlignedEdge(edgeToSplit.from, NodeIndex(newNodeId), edgeToSplit.direction), newNodeId + 1)
+  end findRadialNextAlignedEdgeOrSplitEdge
 
   /**
     * fixes 180 turns for a given direction sequence
@@ -827,6 +893,7 @@ object GreedyOrthogonalization:
       "SWS" -> "SS",
       "SES" -> "SS",
       "WNW" -> "WW",
+      "WSW" -> "WW",
       "NN" -> "N",
       "EE" -> "E",
       "SS" -> "S",
@@ -896,6 +963,55 @@ object GreedyOrthogonalization:
 
     (faceReps, Graph.fromEdges(dualGraphEdges).mkBasicGraph)
   end createDualGraph
+
+
+  def connectAllUnalignedComponents(alignedGraph: AlignedGraph, graph: BasicGraph, pos: VertexLayout): AlignedGraph =
+    // connect connected components, that are connected by unaligned edges
+    val gConnenctedComps = getConnectedComponents(graph).toSeq
+    var newAlignedGraph = alignedGraph
+    
+    // TODO: Only consider connected components in G
+    // TODO: iterate over the connected components in G and only look at connected components 
+    // induced by those nodes
+    
+    for conComp <- gConnenctedComps do
+      val inducedGAlignedComps = getConnectedComponents(
+        Graph.fromEdges(newAlignedGraph.edges.filter(e => conComp.contains(e.from) || conComp.contains(e.to)).map(_.unalign)).mkBasicGraph
+        ).toSeq
+
+    
+      // TODO: TODO: Needs to be rewritten
+      if inducedGAlignedComps.size > 1 then
+        var curMinComp = (0, 1)
+        var curMin = (inducedGAlignedComps(0).toSeq.head, inducedGAlignedComps(1).toSeq.head)
+        // TODO: bestimme das Paar von connected Components, das am nächsten ist
+        for i <- Range(0, inducedGAlignedComps.size) do
+          for j <- Range(i, inducedGAlignedComps.size) do
+            // TODO: get min and compare
+            for u <- inducedGAlignedComps(i) do 
+              for v <- inducedGAlignedComps(j) do
+                if (pos(u)-pos(v)).len < (pos(curMin._1)-pos(curMin._2)).len then
+                  curMin = (u, v)
+                  curMinComp = (i, j)
+                end if
+              end for
+            end for 
+          end for
+        end for 
+
+        // TODO: Conneced both connected Components
+        // TODO: Conneced both connected Components
+        // TODO: Conneced both connected Components
+        // TODO: Conneced both connected Components
+
+
+      end if // more than on connected (aligned) component
+
+    end for
+
+    alignedGraph
+  end connectAllUnalignedComponents
+
 
 end GreedyOrthogonalization
 
