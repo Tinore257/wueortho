@@ -87,26 +87,31 @@ object GreedyOrthogonalization:
                         AlignedEdge(NodeIndex(14),NodeIndex(15), Direction.North),
                         AlignedEdge(NodeIndex(15),NodeIndex(16), Direction.East),
                         AlignedEdge(NodeIndex(17),NodeIndex(16), Direction.North),
+                        AlignedEdge(NodeIndex(18),NodeIndex(20), Direction.North),
+                        AlignedEdge(NodeIndex(18),NodeIndex(19), Direction.East),
                         )
     val vPosGraph3 = VertexLayout(IndexedSeq(
-        Vec2D(4, 1),
-        Vec2D(8, 1),
-        Vec2D(8, 4),
-        Vec2D(4, 4),
-        Vec2D(8, 3),
-        Vec2D(4, 6),
-        Vec2D(4, 8),
-        Vec2D(8, 8),
-        Vec2D(6, 6),
-        Vec2D(12, 4),
-        Vec2D(12, 8),
-        Vec2D(12, 12),//11
-        Vec2D(1, 12),
-        Vec2D(1, 4),
-        Vec2D(12, 5),
-        Vec2D(10, 5),
-        Vec2D(10, 7),
-        Vec2D(12, 7),
+        Vec2D(4, -1),
+        Vec2D(8, -1),
+        Vec2D(8, -4),
+        Vec2D(4, -4),
+        Vec2D(8, -3),
+        Vec2D(4, -6),
+        Vec2D(4, -8),
+        Vec2D(8, -8),
+        Vec2D(6, -6),
+        Vec2D(12, -4),
+        Vec2D(12, -8),
+        Vec2D(12, -12),//11
+        Vec2D(1, -12),
+        Vec2D(1, -4),
+        Vec2D(5, -12),
+        Vec2D(5, -10),
+        Vec2D(8, -10),
+        Vec2D(8, -12),
+        Vec2D(5, -14), //18
+        Vec2D(11, -14),
+        Vec2D(6, -12),
       ))
     val graph3 = AlignedGraph.fromAlignedEdges(allEdges3).mkAlignedGraph
     val (_, dualG) = createDualGraph(graph3)
@@ -116,6 +121,7 @@ object GreedyOrthogonalization:
     //val fixSeqCW = fix180Turns(Seq(Direction.West, Direction.South, Direction.North, Direction.West,Direction.North), false);
     val graph3G = Graph.fromEdges(graph3.edges.map(_.unalign)).mkBasicGraph
     val newG = routeUnalignedEdge(graph3, graph3G, SimpleEdge(NodeIndex(12),NodeIndex(17)),vPosGraph3, graph3G.vertices.length)
+    val newG2 = connectTwoComponents(newG, graph3G, NodeIndex(10), NodeIndex(19), 22, vPosGraph3 )
 
     val x = 0;
   end testMain
@@ -520,6 +526,21 @@ object GreedyOrthogonalization:
     graph
   end connectNestedComponents
 
+
+  def angleOfEdge(e1: Vec2D, e2: Vec2D) =
+    math.atan2((e2.x2 - e1.x2), (e2.x1 - e1.x1))
+
+  def directionToAngle(dir: Direction) = dir match
+    case Direction.East  => 0.0
+    case Direction.North => Math.PI / 2
+    case Direction.West  => Math.PI
+    case Direction.South => -Math.PI / 2
+
+  def edgeAlignmentCost(angle: Double, dir: Direction) =
+    val semiAxisAngle = directionToAngle(dir)
+    Math.abs(angle - semiAxisAngle) min Math.abs(angle - Math.PI * 2 - semiAxisAngle)
+
+
   def greedyAlignedGraph(graph: BasicGraph, init: VertexLayout, boxes: VertexBoxes): AlignedGraph =
     val n = graph.numberOfVertices
 
@@ -555,8 +576,6 @@ object GreedyOrthogonalization:
 
     val allEdgeAngles = wueortho.data.mutable.Matrix.fill(n, n)(0)
 
-    def angleOfEdge(e1: Vec2D, e2: Vec2D) =
-      math.atan2((e2.x2 - e1.x2), (e2.x1 - e1.x1))
 
     // TODO: assumes, that graph is undirected weighted graph
     val undirectedGraph = sg2dg(graph)
@@ -565,17 +584,6 @@ object GreedyOrthogonalization:
     // precalculate all edge angles
     allEdges.map(b => (b.from, b.to, pos(b.from.toInt), pos(b.to.toInt)))
       .foreach((from, to, e1, e2) => allEdgeAngles(from.toInt, to.toInt) = angleOfEdge(e1, e2))
-
-    def directionToAngle(dir: Direction) = dir match
-      case Direction.East  => 0.0
-      case Direction.North => Math.PI / 2
-      case Direction.West  => Math.PI
-      case Direction.South => -Math.PI / 2
-
-    def edgeAlignmentCost(angle: Double, dir: Direction) =
-      val semiAxisAngle = directionToAngle(dir)
-      Math.abs(angle - semiAxisAngle) min Math.abs(angle - Math.PI * 2 - semiAxisAngle)
-
 
     val verticesOrderedByDegree = undirectedGraph.vertices.zipWithIndex.map((v, i) => (i, v.neighbors.length))
       .sortBy((_, l) => l).reverse
@@ -969,6 +977,7 @@ object GreedyOrthogonalization:
     // connect connected components, that are connected by unaligned edges
     val gConnenctedComps = getConnectedComponents(graph).toSeq
     var newAlignedGraph = alignedGraph
+    var newNodeId: Int = graph.vertices.length
     
     // TODO: Only consider connected components in G
     // TODO: iterate over the connected components in G and only look at connected components 
@@ -999,6 +1008,12 @@ object GreedyOrthogonalization:
           end for
         end for 
 
+
+        // TODO: das hier ist nicht der richtige Ansatz
+        val (newAlignedGraph2, newEdge, newNodeId2) = findRadialNextAlignedEdgeOrSplitEdge(alignedGraph, SimpleEdge(curMin._1,curMin._2), pos, newNodeId)
+        newNodeId = newNodeId2
+        newAlignedGraph = newAlignedGraph2
+
         // TODO: Conneced both connected Components
         // TODO: Conneced both connected Components
         // TODO: Conneced both connected Components
@@ -1012,6 +1027,58 @@ object GreedyOrthogonalization:
     alignedGraph
   end connectAllUnalignedComponents
 
+  def connectTwoComponents(alignedGraph: AlignedGraph, graph: BasicGraph, nodeA: NodeIndex, nodeB: NodeIndex,  newNodeId: Int, pos: VertexLayout):(AlignedGraph, Int) = 
+    def hasNoEdgeInDir(node: NodeIndex, dir: Direction): Boolean =
+      alignedGraph.vertices(node.toInt).neighbors.filter(_.direction == dir).isEmpty
+    
+    var newAlignedGraph = alignedGraph
+    var newEdges: Seq[AlignedEdge] = Seq()
+    var newId = newNodeId
+    var newNodeA = nodeA
+    var newNodeB = nodeB
+
+    // NODE A
+    // finde die richting (semiachse), zu der die Kante zwischen den Knoten am nächsten sind
+    val dirAtoB = Seq(Direction.North, Direction.West, Direction.South, Direction.East)
+      .sortBy(dir => edgeAlignmentCost(angleOfEdge(pos(nodeA), pos(nodeB)), dir)).head
+    if !hasNoEdgeInDir(nodeA, dirAtoB) then  
+      // alternativ orthogonal angrenzenden Richtung mit Knick oder Kante splitten
+      val dirAtoBSecond = Seq(Direction.North, Direction.West, Direction.South, Direction.East)
+      .sortBy(dir => edgeAlignmentCost(angleOfEdge(pos(nodeA), pos(nodeB)), dir)).tail.head
+      val edgeToSplit = alignedGraph.vertices(nodeA.toInt).neighbors.filter(_.direction == dirAtoBSecond) 
+      if hasNoEdgeInDir(nodeA, dirAtoBSecond) then 
+        newEdges = newEdges.appended(AlignedEdge(nodeA, NodeIndex(newId), dirAtoBSecond))
+        newNodeA = NodeIndex(newId)
+        newId = newId + 1
+      else
+        newAlignedGraph = splitAlignedEdge(newAlignedGraph,  edgeToSplit.map(l => AlignedEdge(nodeA, l.toNode, l.direction)).head, NodeIndex(newId)) 
+        newNodeA = NodeIndex(newId)
+        newId = newId + 1
+
+    // NODE 
+    // finde die richting (semiachse), zu der die Kante zwischen den Knoten am nächsten sind
+    val dirBtoA = Seq(Direction.North, Direction.West, Direction.South, Direction.East)
+      .sortBy(dir => edgeAlignmentCost(angleOfEdge(pos(nodeB), pos(nodeA)), dir)).head
+    if !hasNoEdgeInDir(nodeB, dirBtoA) then
+      // alternativ orthogonal angrenzenden Richtung mit Knick oder Kante splitten
+      val dirBtoASecond = Seq(Direction.North, Direction.West, Direction.South, Direction.East)
+        .sortBy(dir => edgeAlignmentCost(angleOfEdge(pos(nodeB), pos(nodeA)), dir)).tail.head
+      val edgeToSplit = alignedGraph.vertices(nodeB.toInt).neighbors.filter(_.direction == dirBtoASecond) 
+      if hasNoEdgeInDir(nodeB, dirBtoASecond) then 
+        newEdges = newEdges.appended(AlignedEdge(nodeA, NodeIndex(newId), dirBtoASecond))
+        newNodeB = NodeIndex(newId)
+        newId = newId + 1
+      else
+        newAlignedGraph = splitAlignedEdge(newAlignedGraph,  edgeToSplit.map(l => AlignedEdge(nodeB, l.toNode, l.direction)).head, NodeIndex(newId)) 
+        newNodeB = NodeIndex(newId)
+        newId = newId + 1
+
+
+    //add connecting edge
+    newEdges = newEdges.appended(AlignedEdge(newNodeA, newNodeB, dirAtoB))
+
+    (AlignedGraph.fromAlignedEdges(newAlignedGraph.edges.++(newEdges)).mkAlignedGraph, newId) 
+  end connectTwoComponents
 
 end GreedyOrthogonalization
 
