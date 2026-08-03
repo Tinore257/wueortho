@@ -23,13 +23,9 @@ import scala.collection.AbstractIterator
 import scala.annotation.tailrec
 import wueortho.util.GraphSearch.bfs
 import wueortho.layout.FlowNetworkEdgeLength.getMapEdgeToAdjacentFace
-import wueortho.routing.OrthogonalVisibilityGraph.edgeOfWorld
 import scala.collection.mutable.IndexedBuffer
 import wueortho.util.GraphSearch
 import wueortho.util.GraphSearch.dijkstra
-import wueortho.util.GraphSearch.Dijkstra
-import wueortho.routing.OrthogonalVisibilityGraph.neighbor
-import org.jgrapht.graph.SimpleGraph
 import wueortho.util.GraphSearch.DijkstraCost
 extension (a: Vec2D)
   def dot(b: Vec2D): Double =
@@ -119,9 +115,11 @@ object GreedyOrthogonalization:
     //println(dualG.vertices.zipWithIndex.map((v, i) => s"Knoten: ${i} hat Nachbarn: ${v.neighbors}\n"))
     //val fixSeq = fix180Turns(Seq(Direction.South,  Direction.East, Direction.South, Direction.North, Direction.East), true);
     //val fixSeqCW = fix180Turns(Seq(Direction.West, Direction.South, Direction.North, Direction.West,Direction.North), false);
-    val graph3G = Graph.fromEdges(graph3.edges.map(_.unalign)).mkBasicGraph
+    val unaligendEdges = Seq(SimpleEdge(NodeIndex(16), NodeIndex(18)))
+    val graph3G = Graph.fromEdges(graph3.edges.map(_.unalign)++(unaligendEdges)).mkBasicGraph
     val newG = routeUnalignedEdge(graph3, graph3G, SimpleEdge(NodeIndex(12),NodeIndex(17)),vPosGraph3, graph3G.vertices.length)
-    val newG2 = connectTwoComponents(newG, graph3G, NodeIndex(10), NodeIndex(19), 22, vPosGraph3 )
+    //val newG2 = connectTwoComponents(graph3, NodeIndex(12), NodeIndex(18), 22, vPosGraph3 )
+    val newG4 = connectAllUnalignedComponents(graph3, graph3G, vPosGraph3)
 
     val x = 0;
   end testMain
@@ -811,10 +809,6 @@ object GreedyOrthogonalization:
     * @return
     */
   def findRadialNextAlignedEdgeOrSplitEdge(alignedGraph: AlignedGraph, unaligendEdge: SimpleEdge, pos: VertexLayout, newNodeId: Int): (AlignedGraph, AlignedEdge, Int) =
-    //val orderdNeighbors = getRadialOrderingNeighbors(unaligendEdge.from, graph.vertices(unaligendEdge.from.toInt).neighbors.map(l => SimpleEdge(unaligendEdge.from, l.toNode)), pos, true);
-    //val listWithEdgeOnHead = orderdNeighbors.dropWhile(e => !alignedGraph.vertices(unaligendEdge.from.toInt).neighbors.contains(e._1.to))
-    //if listWithEdgeOnHead.isEmpty then sys.error("no alignedEdge found!")
-    //alignedGraph.edges.filter(e => e.from  == listWithEdgeOnHead.head._1.from && e.to == listWithEdgeOnHead.head._1.to).head
     val usedDir = alignedGraph.vertices(unaligendEdge.from.toInt).neighbors.map(_.direction)
     val freeDir = Set(Direction.North, Direction.East, Direction.South, Direction.West)--(usedDir).toSeq
     if !freeDir.isEmpty then
@@ -984,21 +978,24 @@ object GreedyOrthogonalization:
     // induced by those nodes
     
     for conComp <- gConnenctedComps do
-      val inducedGAlignedComps = getConnectedComponents(
+      var inducedGAlignedComps = getConnectedComponents(
         Graph.fromEdges(newAlignedGraph.edges.filter(e => conComp.contains(e.from) || conComp.contains(e.to)).map(_.unalign)).mkBasicGraph
         ).toSeq
 
+      var filteredComps = inducedGAlignedComps.filter(l => l.forall(conComp.contains(_)))
+
     
-      // TODO: TODO: Needs to be rewritten
-      if inducedGAlignedComps.size > 1 then
+      // TODO: Needs to be rewritten
+      // TODO: This is wrong
+      while filteredComps.size > 1 do
         var curMinComp = (0, 1)
-        var curMin = (inducedGAlignedComps(0).toSeq.head, inducedGAlignedComps(1).toSeq.head)
+        var curMin = (filteredComps(0).toSeq.head, filteredComps(1).toSeq.head)
         // TODO: bestimme das Paar von connected Components, das am nächsten ist
-        for i <- Range(0, inducedGAlignedComps.size) do
-          for j <- Range(i, inducedGAlignedComps.size) do
+        for i <- Range(0, filteredComps.size) do
+          for j <- Range(i + 1, filteredComps.size) do
             // TODO: get min and compare
-            for u <- inducedGAlignedComps(i) do 
-              for v <- inducedGAlignedComps(j) do
+            for u <- filteredComps(i) do 
+              for v <- filteredComps(j) do
                 if (pos(u)-pos(v)).len < (pos(curMin._1)-pos(curMin._2)).len then
                   curMin = (u, v)
                   curMinComp = (i, j)
@@ -1008,26 +1005,27 @@ object GreedyOrthogonalization:
           end for
         end for 
 
+        // Verbinde die beiden connected components
+        val (newAlignedGraph3, newId2) = connectTwoComponents(newAlignedGraph, curMin._1, curMin._2, newNodeId, pos)
+        newAlignedGraph = newAlignedGraph3
+        newNodeId = newId2
 
-        // TODO: das hier ist nicht der richtige Ansatz
-        val (newAlignedGraph2, newEdge, newNodeId2) = findRadialNextAlignedEdgeOrSplitEdge(alignedGraph, SimpleEdge(curMin._1,curMin._2), pos, newNodeId)
-        newNodeId = newNodeId2
-        newAlignedGraph = newAlignedGraph2
+        // update while condiction
+        inducedGAlignedComps = getConnectedComponents(
+          Graph.fromEdges(newAlignedGraph.edges.filter(e => conComp.contains(e.from) || conComp.contains(e.to)).map(_.unalign)).mkBasicGraph
+          ).toSeq
 
-        // TODO: Conneced both connected Components
-        // TODO: Conneced both connected Components
-        // TODO: Conneced both connected Components
-        // TODO: Conneced both connected Components
+        filteredComps = inducedGAlignedComps.filter(l => l.forall(conComp.contains(_)))
 
 
-      end if // more than on connected (aligned) component
+      end while // more than on connected (aligned) component
 
     end for
 
-    alignedGraph
+    newAlignedGraph
   end connectAllUnalignedComponents
 
-  def connectTwoComponents(alignedGraph: AlignedGraph, graph: BasicGraph, nodeA: NodeIndex, nodeB: NodeIndex,  newNodeId: Int, pos: VertexLayout):(AlignedGraph, Int) = 
+  def connectTwoComponents(alignedGraph: AlignedGraph, nodeA: NodeIndex, nodeB: NodeIndex,  newNodeId: Int, pos: VertexLayout):(AlignedGraph, Int) = 
     def hasNoEdgeInDir(node: NodeIndex, dir: Direction): Boolean =
       alignedGraph.vertices(node.toInt).neighbors.filter(_.direction == dir).isEmpty
     
