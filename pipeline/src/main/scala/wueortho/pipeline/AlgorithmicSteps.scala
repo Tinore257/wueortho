@@ -165,7 +165,7 @@ object AlgorithmicSteps:
     end planarizeAlignedGraph
   end given
 
-  given StepImpl[step.LayoutAlignedEdges]:
+  given StepImpl[step.FlowNetwork]:
     override transparent inline def stagesUsed =
       (
         "layout"       -> Stage.Layout,
@@ -180,15 +180,37 @@ object AlgorithmicSteps:
     override def helpText =
       s"""Layouts aligned Edges using flow network minimalisation""".stripMargin
 
-    override def runToStage(s: WithTags[step.LayoutAlignedEdges], cache: StageCache) = for
+    override def runToStage(s: WithTags[step.FlowNetwork], cache: StageCache) = for
       (inLayout, graph, alignedSubGraph) <- UseStages(s, cache, stagesUsed)
-      _                                  <- UpdateSingleStage(s, cache, stagesModified)(layoutAlignedGraph(alignedSubGraph, inLayout))
+      _                                  <- UpdateSingleStage(s, cache, stagesModified)(flowNetworklayoutAlignedGraph(alignedSubGraph, inLayout))
     yield noRt
 
-    private def layoutAlignedGraph(graph: AlignedGraph, init: VertexLayout) =
+    private def flowNetworklayoutAlignedGraph(graph: AlignedGraph, init: VertexLayout) =
       val res = RunningTime.of("Layouting of aligned edges")(() =>  FlowNetworkEdgeLength.positionsFromEdgeLength(graph))
       res.get()
-    end layoutAlignedGraph
+    end flowNetworklayoutAlignedGraph
+  end given
+
+
+  given StepImpl[step.AlignedGraphToGraph]:
+    override transparent inline def stagesUsed     = ("AlignedGraph" -> Stage.GraphWithAlignments)
+    override transparent inline def stagesModified = Stage.Graph
+
+    override def tags     = GetSingleTag(stagesUsed)
+    override def helpText =
+      s"""Creates an equivalent BasicGraph from an aligned graph to draw.""".stripMargin
+
+    override def runToStage(s: WithTags[step.AlignedGraphToGraph], cache: StageCache) = for
+      alignedGraph <- UseSingleStage(s, cache, stagesUsed)
+      res    = alignedGraphToGraph(alignedGraph)
+      _     <- UpdateSingleStage(s, cache, stagesModified)(res)
+    yield noRt
+
+
+    private def alignedGraphToGraph(graph: AlignedGraph) =
+      val res = RunningTime.of("Layouting of aligned edges")(() => Graph.fromEdges(graph.edges.map(_.unalign)).mkBasicGraph)
+      res.get()
+    end alignedGraphToGraph
   end given
 
   given StepImpl[step.GTreeOverlaps] with

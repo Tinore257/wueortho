@@ -27,6 +27,7 @@ import scala.collection.mutable.IndexedBuffer
 import wueortho.util.GraphSearch
 import wueortho.util.GraphSearch.dijkstra
 import wueortho.util.GraphSearch.DijkstraCost
+import scala.collection.mutable.ArrayBuffer
 extension (a: Vec2D)
   def dot(b: Vec2D): Double =
     a.x1 * b.x1 + a.x2 * b.x2
@@ -651,12 +652,16 @@ object GreedyOrthogonalization:
     val alignedPos = pos.finish
 
     // create alignedGraph
-    var alignedGraph = AlignedGraph.fromAlignedEdges(alingedEdges.toSeq).mkAlignedGraph
+    var (alignedGraph, newVPos) = AlignedGraph.fromAlignedEdges(alingedEdges.toSeq).mkAlignedGraph.planarize(init)
     
+    println(alignedGraph.edges.map(e => s"${e.from.toInt} - ${e.to.toInt}: ${e.direction} \n").reduce(_.concat(_)))
 
-    connectAllUnalignedComponents(alignedGraph, graph, init)
+    val (alignedGraph2, newId) = connectAllUnalignedComponents(alignedGraph, graph, init)
+    alignedGraph = alignedGraph2
 
     // TODO: route all paths
+    val (alignedGraph3, newId2) = routeAllUnalignedEdges(alignedGraph, graph, init, newId)
+    alignedGraph = alignedGraph3
 
     alignedGraph
   end greedyAlignedGraph
@@ -683,7 +688,7 @@ object GreedyOrthogonalization:
     * @param newNodeId
     * @return
     */
-  def routeUnalignedEdge(alignedGraph: AlignedGraph, graph: BasicGraph, unaligendEdge: SimpleEdge, pos: VertexLayout, newNodeId: Int): AlignedGraph =
+  def routeUnalignedEdge(alignedGraph: AlignedGraph, graph: BasicGraph, unaligendEdge: SimpleEdge, pos: VertexLayout, newNodeId: Int): (AlignedGraph, Int) =
     // wenn die Kante gesplittet wird, wird einen neuen start-/Endknoten verwendet
     var startNode = unaligendEdge.from
     var endNode = unaligendEdge.to
@@ -701,7 +706,7 @@ object GreedyOrthogonalization:
     newId = newId2
 
     // bestimmte dualGraph 
-    val (faceReps, dualG) = createDualGraph(newAlignedGraph)
+    var (faceReps, dualG) = createDualGraph(newAlignedGraph)
 
 
     var startFace = newAlignedGraph.traverseEdgesAlignedFace(startFaceEdge, false, false).toSeq.filter(faceReps.contains(_)).head
@@ -733,16 +738,18 @@ object GreedyOrthogonalization:
     var newPathNodesWithFace = Seq(startNode)
     for edge <- edgesToSpit do
       newAlignedGraph = splitAlignedEdge(newAlignedGraph, edge, NodeIndex(newId))
-      // update start- or endEdge, if it was just split
-      if edge == startFace then 
-        startFace = newAlignedGraph.edges.filter(e => e.from == startFace.from && e.to == NodeIndex(newId)).head
-      if getReverseEdge(edge) == startFace then
-        startFace = newAlignedGraph.edges.map(getReverseEdge(_)).filter(e => e.from == startFace.from && e.to == NodeIndex(newId)).head
-      if edge == endFace then 
-        endFace = newAlignedGraph.edges.filter(e => e.from == endFace.from && e.to == NodeIndex(newId)).head
-      if getReverseEdge(edge) == endFace then
-        endFace = newAlignedGraph.edges.map(getReverseEdge(_)).filter(e => e.from == endFace.from && e.to == NodeIndex(newId)).head
-      
+      // update start- or endEdge or faceRep if it was just split
+      if edge == startFace || getReverseEdge(edge) == startFace  then 
+        startFace = AlignedEdge(startFace.from, NodeIndex(newId), startFace.direction)
+      if edge == endFace || getReverseEdge(edge) == endFace  then 
+        endFace = AlignedEdge(endFace.from, NodeIndex(newId), endFace.direction)
+      // update faceReps
+      faceReps = faceReps.map(
+        e => if e == edge || e == getReverseEdge(edge) then 
+        AlignedEdge(e.from, NodeIndex(newId), e.direction)
+        else e
+      )
+            
       newPathNodesWithFace = newPathNodesWithFace.appended(NodeIndex(newId))
       newId = newId + 1
     end for
@@ -765,9 +772,23 @@ object GreedyOrthogonalization:
 
     
     //Füge diese Kanten zum Graph hinzu??
-    AlignedGraph.fromAlignedEdges(newAlignedGraph.edges++(allNewEdges)).mkAlignedGraph
+    (AlignedGraph.fromAlignedEdges(newAlignedGraph.edges++(allNewEdges)).mkAlignedGraph, newId)
 
   end routeUnalignedEdge
+
+
+  def routeAllUnalignedEdges(alignedGraph: AlignedGraph, graph: BasicGraph, pos: VertexLayout, newNodeId: Int): (AlignedGraph, Int) =
+    val allUnaligned = graph.edges.filter(e => !alignedGraph.edges.map(_.unalign).contains(e) && !alignedGraph.edges.map(_.unalign).contains(getReverseEdge(e)));
+    var newAlignedGraph = alignedGraph
+    var newId = newNodeId
+    for edge <- allUnaligned do
+      val (alignedGraph2, newId2) = routeUnalignedEdge(newAlignedGraph, graph, edge, pos, newId)
+      newAlignedGraph = alignedGraph2
+      newId = newId2
+    end for
+
+    (newAlignedGraph, newId)
+  end routeAllUnalignedEdges 
 
   /**
     * creates a sequence of alignedEdge starting at startNode, ending at endNode with given directions 
@@ -780,7 +801,7 @@ object GreedyOrthogonalization:
     * @return
     */
   def dirSeqToAlignedEdgeSeq(dirSeq: Seq[Direction], startNode: NodeIndex, endNode: NodeIndex, newNodeId: Int): Seq[AlignedEdge] = 
-    val nodeIds = Seq(startNode)++(Range(newNodeId, dirSeq.length).map(NodeIndex(_))).appended(endNode)
+    val nodeIds = Seq(startNode)++(Range(newNodeId, (newNodeId + dirSeq.length) - 1).map(NodeIndex(_))).appended(endNode)
     nodeIds.sliding(2).zip(dirSeq).map((l, dir) => AlignedEdge(l(0), l(1), dir)).toSeq
   end dirSeqToAlignedEdgeSeq
 
@@ -967,7 +988,7 @@ object GreedyOrthogonalization:
   end createDualGraph
 
 
-  def connectAllUnalignedComponents(alignedGraph: AlignedGraph, graph: BasicGraph, pos: VertexLayout): AlignedGraph =
+  def connectAllUnalignedComponents(alignedGraph: AlignedGraph, graph: BasicGraph, pos: VertexLayout): (AlignedGraph, Int) =
     // connect connected components, that are connected by unaligned edges
     val gConnenctedComps = getConnectedComponents(graph).toSeq
     var newAlignedGraph = alignedGraph
@@ -1022,7 +1043,7 @@ object GreedyOrthogonalization:
 
     end for
 
-    newAlignedGraph
+    (newAlignedGraph, newNodeId)
   end connectAllUnalignedComponents
 
   def connectTwoComponents(alignedGraph: AlignedGraph, nodeA: NodeIndex, nodeB: NodeIndex,  newNodeId: Int, pos: VertexLayout):(AlignedGraph, Int) = 

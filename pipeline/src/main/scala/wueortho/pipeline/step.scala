@@ -36,8 +36,9 @@ object step:
   case class SGDLayout(iterations: Int, seed: Seed, repetitions: Int)                   extends CS derives CC
   case class OrthogonalRotationLayout()                                                 extends CS derives CC
   case class GreedyOrthogonalization()                                                  extends CS derives CC
-  case class LayoutAlignedEdges()                                                       extends CS derives CC
+  case class FlowNetwork()                                                              extends CS derives CC
   case class PlanarizeAlignedGraph()                                                    extends CS derives CC
+  case class AlignedGraphToGraph()                                                      extends CS derives CC
   case class GTreeOverlaps(stretch: Stretch, seed: Seed, forceGeneralPosition: Boolean) extends CS derives CC
   case class StretchBoxes(stretch: Stretch)                                             extends CS derives CC
   case class PortsByAngle(mode: PortMode)                                               extends CS derives CC
