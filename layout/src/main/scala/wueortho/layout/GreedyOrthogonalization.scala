@@ -28,6 +28,7 @@ import wueortho.util.GraphSearch
 import wueortho.util.GraphSearch.dijkstra
 import wueortho.util.GraphSearch.DijkstraCost
 import scala.collection.mutable.ArrayBuffer
+import wueortho.data.AlignedEdgeType
 extension (a: Vec2D)
   def dot(b: Vec2D): Double =
     a.x1 * b.x1 + a.x2 * b.x2
@@ -661,16 +662,17 @@ object GreedyOrthogonalization:
 
     // TODO: route all paths
     val (alignedGraph3, newId2) = routeAllUnalignedEdges(alignedGraph, graph, init, newId)
-    alignedGraph = alignedGraph3
+    val allEdges3 = alignedGraph3.edges
+    alignedGraph = AlignedGraph.fromAlignedEdges(allEdges3).mkAlignedGraph
 
     alignedGraph
   end greedyAlignedGraph
 
-  def splitAlignedEdge(alignedGraph: AlignedGraph, edgeToSplit: AlignedEdge, newId: NodeIndex): AlignedGraph =
+  def splitAlignedEdge(alignedGraph: AlignedGraph, edgeToSplit: AlignedEdge, newId: NodeIndex, edgeType: AlignedEdgeType = AlignedEdgeType.Default): AlignedGraph =
     val edgesWithoutSplitEdge = alignedGraph.edges.filter(e => !(e.from == edgeToSplit.from && e.to == edgeToSplit.to) && 
                                                 !(e.to == edgeToSplit.from && e.from == edgeToSplit.to))
-    val newEdges = edgesWithoutSplitEdge++Seq(AlignedEdge(edgeToSplit.from, newId, edgeToSplit.direction),
-                                               AlignedEdge(newId, edgeToSplit.to, edgeToSplit.direction))
+    val newEdges = edgesWithoutSplitEdge++Seq(AlignedEdge(edgeToSplit.from, newId, edgeToSplit.direction, edgeType),
+                                               AlignedEdge(newId, edgeToSplit.to, edgeToSplit.direction, edgeType))
     AlignedGraph.fromAlignedEdges(newEdges).mkAlignedGraph
   end splitAlignedEdge 
 
@@ -721,7 +723,7 @@ object GreedyOrthogonalization:
     //       werden, welche zu dem kürzesten Pfad führt und diese dann wählen
     given DijkstraCost[Int, Int] = (a, b) => a + b
     val dij = dijkstra[Int, Int]
-    val shortestPath = dij.shortestPath((x:NodeIndex) => dualG.vertices(x.toInt).neighbors.map(l => (l.toNode, 1)) , NodeIndex(startFaceIndex), NodeIndex(endFaceIndex), 0) 
+    val shortestPath = dij.shortestPath((x:NodeIndex) => dualG.vertices(x.toInt).neighbors.map(l => (l.toNode, 1)) , NodeIndex(startFaceIndex), NodeIndex(endFaceIndex), 1) 
     val facesInPath = shortestPath match
       case Left(value) => sys.error("Error while calculating dijkstra on dual graph!") 
       case Right(path) => path.nodes
@@ -737,16 +739,16 @@ object GreedyOrthogonalization:
     // splitte diese Kanten zwischen den Facetten
     var newPathNodesWithFace = Seq(startNode)
     for edge <- edgesToSpit do
-      newAlignedGraph = splitAlignedEdge(newAlignedGraph, edge, NodeIndex(newId))
+      newAlignedGraph = splitAlignedEdge(newAlignedGraph, edge, NodeIndex(newId), AlignedEdgeType.Path)
       // update start- or endEdge or faceRep if it was just split
       if edge == startFace || getReverseEdge(edge) == startFace  then 
-        startFace = AlignedEdge(startFace.from, NodeIndex(newId), startFace.direction)
+        startFace = AlignedEdge(startFace.from, NodeIndex(newId), startFace.direction, AlignedEdgeType.Path)
       if edge == endFace || getReverseEdge(edge) == endFace  then 
-        endFace = AlignedEdge(endFace.from, NodeIndex(newId), endFace.direction)
+        endFace = AlignedEdge(endFace.from, NodeIndex(newId), endFace.direction, AlignedEdgeType.Path)
       // update faceReps
       faceReps = faceReps.map(
         e => if e == edge || e == getReverseEdge(edge) then 
-        AlignedEdge(e.from, NodeIndex(newId), e.direction)
+        AlignedEdge(e.from, NodeIndex(newId), e.direction, AlignedEdgeType.Path)
         else e
       )
             
@@ -1066,11 +1068,11 @@ object GreedyOrthogonalization:
       .sortBy(dir => edgeAlignmentCost(angleOfEdge(pos(nodeA), pos(nodeB)), dir)).tail.head
       val edgeToSplit = alignedGraph.vertices(nodeA.toInt).neighbors.filter(_.direction == dirAtoBSecond) 
       if hasNoEdgeInDir(nodeA, dirAtoBSecond) then 
-        newEdges = newEdges.appended(AlignedEdge(nodeA, NodeIndex(newId), dirAtoBSecond))
+        newEdges = newEdges.appended(AlignedEdge(nodeA, NodeIndex(newId), dirAtoBSecond, AlignedEdgeType.Temp))
         newNodeA = NodeIndex(newId)
         newId = newId + 1
       else
-        newAlignedGraph = splitAlignedEdge(newAlignedGraph,  edgeToSplit.map(l => AlignedEdge(nodeA, l.toNode, l.direction)).head, NodeIndex(newId)) 
+        newAlignedGraph = splitAlignedEdge(newAlignedGraph,  edgeToSplit.map(l => AlignedEdge(nodeA, l.toNode, l.direction, AlignedEdgeType.Temp)).head, NodeIndex(newId)) 
         newNodeA = NodeIndex(newId)
         newId = newId + 1
 
@@ -1084,17 +1086,17 @@ object GreedyOrthogonalization:
         .sortBy(dir => edgeAlignmentCost(angleOfEdge(pos(nodeB), pos(nodeA)), dir)).tail.head
       val edgeToSplit = alignedGraph.vertices(nodeB.toInt).neighbors.filter(_.direction == dirBtoASecond) 
       if hasNoEdgeInDir(nodeB, dirBtoASecond) then 
-        newEdges = newEdges.appended(AlignedEdge(nodeA, NodeIndex(newId), dirBtoASecond))
+        newEdges = newEdges.appended(AlignedEdge(nodeA, NodeIndex(newId), dirBtoASecond, AlignedEdgeType.Temp))
         newNodeB = NodeIndex(newId)
         newId = newId + 1
       else
-        newAlignedGraph = splitAlignedEdge(newAlignedGraph,  edgeToSplit.map(l => AlignedEdge(nodeB, l.toNode, l.direction)).head, NodeIndex(newId)) 
+        newAlignedGraph = splitAlignedEdge(newAlignedGraph,  edgeToSplit.map(l => AlignedEdge(nodeB, l.toNode, l.direction, AlignedEdgeType.Temp)).head, NodeIndex(newId)) 
         newNodeB = NodeIndex(newId)
         newId = newId + 1
 
 
     //add connecting edge
-    newEdges = newEdges.appended(AlignedEdge(newNodeA, newNodeB, dirAtoB))
+    newEdges = newEdges.appended(AlignedEdge(newNodeA, newNodeB, dirAtoB, AlignedEdgeType.Temp))
 
     (AlignedGraph.fromAlignedEdges(newAlignedGraph.edges.++(newEdges)).mkAlignedGraph, newId) 
   end connectTwoComponents

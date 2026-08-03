@@ -3,12 +3,38 @@ import scala.collection.mutable
 import scala.collection.AbstractIterator
 import scala.collection.mutable.IndexedBuffer
 
+enum AlignedEdgeType derives CanEqual:
+  case Default, Temp, Path
+
+
 // reverseIndex: Position in der Adjazenzliste der toNode, von dem Link zur aktuellen fromNode
-case class AlignedLink(toNode: NodeIndex, reverseIndex: Int, direction: Direction) derives CanEqual:
+case class AlignedLink(toNode: NodeIndex, reverseIndex: Int, direction: Direction, edgeType: AlignedEdgeType = AlignedEdgeType.Default) derives CanEqual:
   def unalign = BasicLink(toNode, reverseIndex)
 
-case class AlignedEdge(from: NodeIndex, to: NodeIndex, direction: Direction) derives CanEqual:
+  override def equals(other: Any): Boolean = other match {
+    case that: AlignedLink =>
+      toNode == that.toNode &&
+      reverseIndex == that.reverseIndex &&
+      direction == that.direction
+    case _ => false
+  }
+
+  override def hashCode(): Int =
+    (toNode, reverseIndex, direction).##
+
+case class AlignedEdge(from: NodeIndex, to: NodeIndex, direction: Direction, edgeType: AlignedEdgeType = AlignedEdgeType.Default) derives CanEqual:
   def unalign = SimpleEdge(from, to)
+
+  override def equals(other: Any): Boolean = other match {
+    case that: AlignedEdge =>
+      from == that.from &&
+      to == that.to &&
+      direction == that.direction
+    case _ => false
+  }
+
+  override def hashCode(): Int =
+    (from, to, direction).##
 
 case class SquareChain(chain: Seq[NodeIndex], chainComplement: Seq[NodeIndex], sigma: Seq[NodeIndex])
 
@@ -106,28 +132,28 @@ private def mkEdges[L, E](nodes: Seq[Vertex[L]], mk: (NodeIndex, L) => E, toBasi
 yield mk(NodeIndex(u), link)
 
 class ABuilder private (
-    adj: mutable.ArrayBuffer[mutable.ArrayBuffer[(NodeIndex, Int, Direction)]],
+    adj: mutable.ArrayBuffer[mutable.ArrayBuffer[(NodeIndex, Int, Direction, AlignedEdgeType)]],
 ):
   private def ensureSize(i: Int) = if adj.size <= i then adj ++= Seq.fill(i - adj.size + 1)(mutable.ArrayBuffer.empty)
 
-  def addEdge(from: NodeIndex, to: NodeIndex, direction: Direction): ABuilder =
+  def addEdge(from: NodeIndex, to: NodeIndex, direction: Direction, edgeType: AlignedEdgeType): ABuilder =
 
     ensureSize(from.toInt max to.toInt)
     if from == to then // beware the loops
-      adj(from.toInt) += ((to, adj(from.toInt).size + 1, direction))
-      adj(to.toInt) += ((from, adj(from.toInt).size - 1, direction))
+      adj(from.toInt) += ((to, adj(from.toInt).size + 1, direction, edgeType))
+      adj(to.toInt) += ((from, adj(from.toInt).size - 1, direction, edgeType))
     else
-      adj(from.toInt) += ((to, adj(to.toInt).size, direction))
-      adj(to.toInt) += ((from, adj(from.toInt).size - 1, direction.reverse))
+      adj(from.toInt) += ((to, adj(to.toInt).size, direction, edgeType))
+      adj(to.toInt) += ((from, adj(from.toInt).size - 1, direction.reverse, edgeType))
     this
   end addEdge
 
-  def addEdge(from: NodeIndex, to: NodeIndex): ABuilder = addEdge(from, to, Direction.North)
+  def addEdge(from: NodeIndex, to: NodeIndex): ABuilder = addEdge(from, to, Direction.North, AlignedEdgeType.Default)
 
   def size = adj.size
 
   def mkAlignedGraph: AlignedGraph = AGImpl(
-    adj.map(links => Vertex(links.map((v, rl, dir) => AlignedLink(v, rl, dir)).toIndexedSeq)).toIndexedSeq,
+    adj.map(links => Vertex(links.map((v, rl, dir, edgeType) => AlignedLink(v, rl, dir, edgeType)).toIndexedSeq)).toIndexedSeq,
   )
 end ABuilder
 
@@ -142,9 +168,9 @@ def aBuilder() = ABuilder.empty
 object AlignedGraph:
   case class fromAlignedEdges(edges: Seq[AlignedEdge], size: Int = -1):
     def mkAlignedGraph: AlignedGraph =
-      fromEdgesUndirected[AlignedEdge](e => (e.from, e.to, e.direction), edges, size).mkAlignedGraph
+      fromEdgesUndirected[AlignedEdge](e => (e.from, e.to, e.direction, e.edgeType), edges, size).mkAlignedGraph
 
-  private def fromEdgesUndirected[E](ex: E => (NodeIndex, NodeIndex, Direction), edges: Seq[E], size: Int) =
+  private def fromEdgesUndirected[E](ex: E => (NodeIndex, NodeIndex, Direction, AlignedEdgeType), edges: Seq[E], size: Int) =
     val bld = if size < 0 then aBuilder() else ABuilder.reserve(size)
 
     edges.map(ex).foldLeft(bld)(_.addEdge.tupled(_))
@@ -165,7 +191,7 @@ private case class AGImpl[Graph](
   override def numberOfEdges       = nodes.map(_.neighbors.length).sum / 2
   override def vertices            = nodes
   override lazy val edges          =
-    mkEdges(nodes, (u, l) => AlignedEdge(u, l.toNode, l.direction), _.unalign)
+    mkEdges(nodes, (u, l) => AlignedEdge(u, l.toNode, l.direction,l.edgeType), _.unalign)
 
   /** Returns a iterator to traverse along a face
     *

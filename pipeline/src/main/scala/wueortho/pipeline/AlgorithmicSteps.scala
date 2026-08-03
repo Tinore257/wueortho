@@ -208,7 +208,7 @@ object AlgorithmicSteps:
 
 
     private def alignedGraphToGraph(graph: AlignedGraph) =
-      val res = RunningTime.of("Layouting of aligned edges")(() => Graph.fromEdges(graph.edges.map(_.unalign)).mkBasicGraph)
+      val res = RunningTime.of("Layouting of aligned edges")(() => Graph.fromEdges(graph.edges.filter(_.edgeType != AlignedEdgeType.Temp).map(_.unalign)).mkBasicGraph)
       res.get()
     end alignedGraphToGraph
   end given

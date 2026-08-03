@@ -1,9 +1,9 @@
 package wueortho.data
 import scala.collection.mutable
 
-case class AlignedWithLengthLink(toNode: NodeIndex, reverseIndex: Int, direction: Direction, length: Int)
+case class AlignedWithLengthLink(toNode: NodeIndex, reverseIndex: Int, direction: Direction, length: Int, edgeType: AlignedEdgeType = AlignedEdgeType.Default)
     derives CanEqual:
-  def unweight = AlignedLink(toNode, reverseIndex, direction)
+  def unweight = AlignedLink(toNode, reverseIndex, direction, edgeType)
 
 case class AlignedWithLengthEdge(
     from: NodeIndex = NodeIndex(0),
