@@ -23,7 +23,7 @@ object OrthogonalRotation:
       def update(i: Int, value: Vec2D) = a(i) = value
       
     end PosVec
-      
+    
     val pos = PosVec(init.nodes);
 
     if n < 2 then return VertexLayout(pos.finish)
@@ -34,16 +34,16 @@ object OrthogonalRotation:
       .map((e1, e2) => math.atan2((e2.x2-e1.x2),(e2.x1-e1.x1)))
 
     val sinSum: Double = alphaList
-      .map(a => math.sin(a))
+      .map(a => math.sin(a * 4))
       .sum
 
     val cosSum: Double = alphaList
-      .map(a => math.cos(a))
+      .map(a => math.cos(a * 4))
       .sum 
 
-    val theta = -math.atan(sinSum/cosSum)
+    val theta = math.atan(sinSum/cosSum)
 
-    val thetaList = LazyList.from(0).map(i => (math.Pi/4 * i - theta)).takeWhile(_.abs < math.Pi*2).toList
+    val thetaList = LazyList.from(0).map(i => ((math.Pi * i - theta)/4)).takeWhile(_.abs < math.Pi*2).toList
     
     //no minimum were found
     if thetaList.length == 0 then 
@@ -51,9 +51,11 @@ object OrthogonalRotation:
       return VertexLayout(pos.finish)
 
     // function Sum_i sin^2(2*a_i/4+theta)
-    val fx = (t: Double, a: Seq[Double]) => a.map(a => Math.sin(2* (a-t)))
+    val fx = (t: Double, a: Seq[Double]) => a.map(a => Math.sin(2* (a+t)))
       .map(x => x*x)
       .sum
+
+    val allAngles = thetaList.map(t => fx(t, alphaList)).zipWithIndex
 
     //computes the minimum and returns the corresponding angle
     val angleTuple =thetaList.map(t => fx(t, alphaList)).zipWithIndex.minBy(_._1)
@@ -69,7 +71,7 @@ object OrthogonalRotation:
     end rotate
 
     //rotate all points
-    val rotatedPoints = pos.finish.map(rotate(Vec2D(0.0, 0.0), _, -angle))
+    val rotatedPoints = pos.finish.map(rotate(Vec2D(0.0, 0.0), _, angle))
 
     VertexLayout(rotatedPoints)
   end layout
